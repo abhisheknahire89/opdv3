@@ -13,8 +13,8 @@ export interface Citation {
 }
 
 export interface DoctorProfile {
-    qualification: 'MBBS' | 'BAMS' | 'BHMS';
-    canPrescribeAllopathic: 'yes' | 'limited' | 'no';
+  qualification: 'MBBS' | 'BAMS' | 'BHMS';
+  canPrescribeAllopathic: 'yes' | 'limited' | 'no';
 }
 
 // Types for Structured AI Responses
@@ -61,21 +61,21 @@ export interface PatientHandout {
 }
 
 export interface RiskAssessmentResult {
-    riskLevel: 'Low' | 'Medium' | 'High';
-    riskFactors: string[];
-    recommendations: string[];
-    summary: string;
+  riskLevel: 'Low' | 'Medium' | 'High';
+  riskFactors: string[];
+  recommendations: string[];
+  summary: string;
 }
 
 export type LabParameterInput = {
-    name: string;
-    value: string;
-    units: string;
-    referenceRange: string;
+  name: string;
+  value: string;
+  units: string;
+  referenceRange: string;
 };
 
 
-export type StructuredDataType = 
+export type StructuredDataType =
   | { type: 'ddx'; data: DdxItem[]; summary: string; questions?: string[] }
   | { type: 'lab'; data: LabResultAnalysis; summary: string }
   | { type: 'billing'; data: MedicalCodeResult; summary: string }
@@ -98,7 +98,7 @@ export interface Message {
 }
 
 export interface Chat {
-  id:string;
+  id: string;
   title: string;
   messages: Message[];
   userRole: UserRole;
@@ -118,21 +118,21 @@ export interface PreCodedGpt {
 export type ScribeInsightCategory = 'Differential Diagnosis' | 'Questions to Ask' | 'Labs to Consider' | 'General Note';
 
 export interface ScribeInsightBlock {
-    category: ScribeInsightCategory;
-    points: string[];
+  category: ScribeInsightCategory;
+  points: string[];
 }
 
 export interface TranscriptEntry {
-    id: string;
-    speaker: 'Doctor' | 'Patient' | 'AI';
-    text: string;
-    segmentIndex?: number;
+  id: string;
+  speaker: 'Doctor' | 'Patient' | 'AI';
+  text: string;
+  segmentIndex?: number;
 }
 
 export interface PromptInsight {
-    keyTerms: string[];
-    suggestions: string[];
-    followUps: string[];
+  keyTerms: string[];
+  suggestions: string[];
+  followUps: string[];
 }
 
 // --- Clinical Knowledge Base Schema ---
@@ -187,15 +187,15 @@ export interface EscalationTrigger {
 }
 
 export interface MonitoringParameter {
-    parameter: string;
-    frequency: string;
-    normal_range?: string;
+  parameter: string;
+  frequency: string;
+  normal_range?: string;
 }
 
 export interface MonitoringTemplate {
-    title: string;
-    parameters: MonitoringParameter[];
-    alert_triggers: { condition: string, action: string }[];
+  title: string;
+  parameters: MonitoringParameter[];
+  alert_triggers: { condition: string, action: string }[];
 }
 
 
@@ -211,4 +211,26 @@ export interface ClinicalProtocol {
   contraindications_general: string[];
   escalation_triggers: EscalationTrigger[];
   references: { citation: string; url?: string }[];
+}
+
+// --- IPD Foundation Types ---
+
+export interface IPDCase {
+  ipd_case_id: string;
+  patient_id: string;
+  linked_opd_session_id: string;
+  admitting_doctor_id: string;
+  admission_date: string; // ISO Timestamp
+  admission_type: 'Emergency' | 'Planned';
+  current_ipd_day: number;
+  status: 'Active' | 'Discharged';
+  ward_type: 'General' | 'ICU' | 'HDU';
+  created_at: string;
+}
+
+export interface IPDDay {
+  ipd_day: number;
+  date: string; // YYYY-MM-DD
+  nursing_entries_count: number;
+  doctor_notes_count: number;
 }

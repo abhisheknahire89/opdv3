@@ -6,7 +6,8 @@ import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { processAudioSegment, generateClinicalNote } from '../services/geminiService';
 import { renderMarkdownToHTML } from '../utils/markdownRenderer';
-import { Mic, Activity, CheckCircle2, Circle, Clock, Download, FileText, ChevronRight, X, Wifi } from 'lucide-react';
+import { Mic, Activity, CheckCircle2, Circle, Clock, Download, FileText, ChevronRight, X, Wifi, BedDouble } from 'lucide-react';
+import { createIPDCase } from '../services/ipdService';
 
 interface ScribeSessionViewProps {
     onEndSession: () => void;
@@ -65,8 +66,8 @@ const SidebarChecklist: React.FC<{ progress: number }> = ({ progress }) => {
 const TranscriptBubble: React.FC<{ entry: TranscriptEntry }> = ({ entry }) => (
     <div className={`flex w-full ${entry.speaker === 'Doctor' ? 'justify-end' : 'justify-start'} mb-4 animate-fadeInUp`}>
         <div className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-sm border ${entry.speaker === 'Doctor'
-                ? 'bg-opd-primary/10 border-opd-primary/20 text-opd-text-primary rounded-tr-none'
-                : 'bg-white border-opd-border text-opd-text-secondary rounded-tl-none'
+            ? 'bg-opd-primary/10 border-opd-primary/20 text-opd-text-primary rounded-tr-none'
+            : 'bg-white border-opd-border text-opd-text-secondary rounded-tl-none'
             }`}>
             <div className="text-[10px] font-bold uppercase tracking-wider mb-1 opacity-70">
                 {entry.speaker}
@@ -180,6 +181,7 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
     const [clinicalNote, setClinicalNote] = useState('');
     const [progress, setProgress] = useState(0);
     const [showPdfModal, setShowPdfModal] = useState(false);
+    const [isAdmitting, setIsAdmitting] = useState(false);
 
     // Mock Patient for Demo
     const [patient] = useState<PatientDemographics>({
@@ -293,6 +295,26 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
         setClinicalNote(note);
     };
 
+    const handleAdmitPatient = async () => {
+        setIsAdmitting(true);
+        try {
+            const newCase = await createIPDCase({
+                patient_id: 'EMR_PAT_123', // Mock ID
+                linked_opd_session_id: `OPD_${Date.now()}`,
+                admitting_doctor_id: 'DOC_789', // Mock ID
+                admission_type: 'Planned',
+                ward_type: 'General',
+            });
+            alert(`Patient Admitted! Case ID: ${newCase.ipd_case_id}`);
+            // Logic to redirect to IPD Dashboard would go here
+        } catch (error) {
+            console.error("Admission failed", error);
+            alert("Failed to admit patient");
+        } finally {
+            setIsAdmitting(false);
+        }
+    };
+
     return (
         <div className="flex h-screen w-screen overflow-hidden bg-opd-bg">
 
@@ -356,6 +378,13 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
                         )}
                         {phase === 'review' && (
                             <div className="flex gap-2">
+                                <button
+                                    onClick={handleAdmitPatient}
+                                    disabled={isAdmitting}
+                                    className="flex items-center gap-2 px-4 py-2 border-2 border-opd-accent text-opd-accent rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-opd-accent hover:text-white transition-colors"
+                                >
+                                    {isAdmitting ? 'Creating...' : <><BedDouble className="w-4 h-4" /> Admit Patient</>}
+                                </button>
                                 <button className="flex items-center gap-2 px-4 py-2 border border-opd-primary text-opd-primary rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-opd-primary/5 transition-colors">
                                     <Mic className="w-4 h-4" /> Voice Edit
                                 </button>
