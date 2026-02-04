@@ -6,6 +6,7 @@ import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { processAudioSegment, generateClinicalNote } from '../services/geminiService';
 import { renderMarkdownToHTML } from '../utils/markdownRenderer';
+import { Mic, Activity, CheckCircle2, Circle, Clock, Download, FileText, ChevronRight, X, Wifi } from 'lucide-react';
 
 interface ScribeSessionViewProps {
     onEndSession: () => void;
@@ -20,18 +21,15 @@ interface PatientDemographics {
 
 // --- Helper Components ---
 
-const AudioWaveform: React.FC<{ active: boolean }> = ({ active }) => {
-    if (!active) return <div className="h-12 w-full flex items-center justify-center text-gray-500 font-mono text-xs">MICROPHONE OFF</div>;
-    
+const BreathingWaveform: React.FC<{ active: boolean }> = ({ active }) => {
     return (
-        <div className="flex items-center justify-center gap-1.5 h-16 px-4">
-            {[...Array(12)].map((_, i) => (
+        <div className="flex items-center justify-center gap-1.5 h-32 w-full">
+            {[...Array(20)].map((_, i) => (
                 <div
                     key={i}
-                    className="w-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+                    className={`w-2.5 rounded-full ${active ? 'bg-veda-purple animate-waveform mix-blend-multiply' : 'bg-gray-200 h-2'}`}
                     style={{
-                        height: `${30 + Math.random() * 70}%`,
-                        animationDuration: `${0.4 + Math.random() * 0.3}s`,
+                        animationDuration: `${0.6 + Math.random() * 0.4}s`,
                         animationDelay: `${i * 0.05}s`
                     }}
                 ></div>
@@ -40,197 +38,173 @@ const AudioWaveform: React.FC<{ active: boolean }> = ({ active }) => {
     );
 };
 
-const stripMarkdown = (text: string): string => {
-    if (!text) return "";
-    return text.replace(/^[#\s*+-]+/gm, '').replace(/[*_]{1,2}/g, '').trim();
+// --- Main Layout Components ---
+
+const SidebarChecklist: React.FC<{ progress: number }> = ({ progress }) => {
+    const steps = [
+        { label: "Chief Complaint", done: progress >= 25 },
+        { label: "Vitals & Exam", done: progress >= 50 },
+        { label: "Diagnosis", done: progress >= 75 },
+        { label: "Treatment Plan", done: progress >= 100 },
+    ];
+
+    return (
+        <div className="space-y-4">
+            {steps.map((step, idx) => (
+                <div key={idx} className="flex items-center gap-3">
+                    <div className={`transition-all duration-300 ${step.done ? 'text-opd-success scale-110' : 'text-gray-300'}`}>
+                        {step.done ? <CheckCircle2 className="w-5 h-5 fill-opd-success text-white" /> : <Circle className="w-5 h-5" />}
+                    </div>
+                    <span className={`text-sm font-medium transition-colors ${step.done ? 'text-opd-text-primary' : 'text-opd-text-muted'}`}>{step.label}</span>
+                </div>
+            ))}
+        </div>
+    );
 };
 
+const TranscriptBubble: React.FC<{ entry: TranscriptEntry }> = ({ entry }) => (
+    <div className={`flex w-full ${entry.speaker === 'Doctor' ? 'justify-end' : 'justify-start'} mb-4 animate-fadeInUp`}>
+        <div className={`max-w-[80%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-sm border ${entry.speaker === 'Doctor'
+                ? 'bg-opd-primary/10 border-opd-primary/20 text-opd-text-primary rounded-tr-none'
+                : 'bg-white border-opd-border text-opd-text-secondary rounded-tl-none'
+            }`}>
+            <div className="text-[10px] font-bold uppercase tracking-wider mb-1 opacity-70">
+                {entry.speaker}
+            </div>
+            {entry.text}
+        </div>
+    </div>
+);
+
+// --- Prescription Template (Matches Spec) ---
 const PrescriptionTemplate: React.FC<{ patient: PatientDemographics; clinicalNote: string; isPreview?: boolean }> = ({ patient, clinicalNote, isPreview }) => {
     const getSectionContent = (title: string) => {
         if (!clinicalNote) return "";
         const regex = new RegExp(`##\\s*${title}[^]*?(?=##|$)`, 'i');
         const match = clinicalNote.match(regex);
-        if (!match) return "";
-        return stripMarkdown(match[0].replace(new RegExp(`##\\s*${title}`, 'i'), '').trim());
+        return match ? match[0].replace(new RegExp(`##\\s*${title}`, 'i'), '').trim() : "";
     };
 
-    const containerClass = isPreview
-        ? "w-full bg-white text-black p-6 rounded-lg shadow-inner overflow-hidden border border-gray-200"
-        : "printable-area p-8 bg-white text-black relative";
-
-    const baseFontSize = isPreview ? 'text-[10px]' : 'text-[12.5px]';
-    const headerTitleSize = isPreview ? 'text-[15px]' : 'text-[22px]';
-    const metaLabelSize = isPreview ? 'text-[9.5px]' : 'text-[12.5px]';
-
-    const planLines = getSectionContent('Plan').split('\n').map(l => l.trim()).filter(Boolean);
-    const medicines = planLines.filter(l => l.includes('|')).map(line => {
-        const parts = line.split('|').map(p => p.trim());
-        return {
-            name: parts[0] || '',
-            dosage: parts[1] || '-',
-            frequency: parts[2] || '-',
-            route: parts[3] || '-'
-        };
-    });
-    const adviceLines = planLines.filter(l => !l.includes('|'));
+    const containerClass = "w-full bg-white text-black p-8 relative shadow-card min-h-[800px] border border-gray-100";
+    // const baseFontSize = isPreview ? 'text-[10px]' : 'text-[12.5px]'; // Removed unused const
 
     return (
-        <div className={containerClass} style={{ fontFamily: 'Arial, Helvetica, "Noto Sans Devanagari", sans-serif' }}>
-            {/* Header Branding */}
-            <div className="flex justify-between items-start mb-1" style={{ breakInside: 'avoid' }}>
-                <div className="flex-1">
-                    <div className={`${headerTitleSize} font-bold leading-tight uppercase`}>Doctors Name</div>
-                    <div className={`${isPreview ? 'text-[8.5px]' : 'text-[11.5px]'} font-normal mt-0.5`}>Qualification</div>
-                    <div className={`${isPreview ? 'text-[8.5px]' : 'text-[11.5px]'} font-normal`}>Reg. No :</div>
+        <div className={containerClass}>
+            {/* Header */}
+            <div className="flex justify-between items-start mb-6 border-b-2 border-opd-primary pb-4">
+                <div>
+                    <h2 className="text-xl font-bold uppercase text-opd-text-primary">Medical Prescription</h2>
+                    <p className="text-xs text-gray-500 mt-1">Reg No: 12345678</p>
                 </div>
-                <div className="flex-1 text-right">
-                    <div className={`${headerTitleSize} font-bold leading-tight uppercase`}>{patient.hospitalName}</div>
-                    <div className={`${isPreview ? 'text-[8.5px]' : 'text-[11.5px]'} font-normal mt-0.5`}>{patient.hospitalAddress}</div>
-                    <div className={`flex justify-end ${isPreview ? 'gap-4' : 'gap-10'} mt-1 ${isPreview ? 'text-[8.5px]' : 'text-[11.5px]'}`}>
-                        <div><span className="font-bold">Ph:</span> {patient.hospitalPhone}</div>
-                        <div><span className="font-bold">Time:</span> {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
+                <div className="text-right">
+                    <h3 className="font-bold text-lg text-opd-primary">OPD PLATFORM CLINIC</h3>
+                    <p className="text-xs text-gray-500">Mumbai, India</p>
+                    <p className="text-xs text-gray-500">{new Date().toLocaleDateString()}</p>
+                </div>
+            </div>
+
+            {/* Patient Details */}
+            <div className="bg-gray-50 p-4 rounded-lg flex justify-between items-center text-sm border border-gray-100 mb-8">
+                <div><span className="font-bold text-gray-500 uppercase text-xs mr-2">Name:</span> {patient.name}</div>
+                <div><span className="font-bold text-gray-500 uppercase text-xs mr-2">Age/Sex:</span> {patient.age} / {patient.sex}</div>
+                <div><span className="font-bold text-gray-500 uppercase text-xs mr-2">ID:</span> #OPD-2026-X</div>
+            </div>
+
+            {/* Clinical Sections */}
+            <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-6">
+                    <div className="p-4 border border-gray-200 rounded-xl bg-blue-50/50">
+                        <h4 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Chief Complaint</h4>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{getSectionContent('Subjective') || 'None recorded'}</p>
+                    </div>
+                    <div className="p-4 border border-gray-200 rounded-xl bg-blue-50/50">
+                        <h4 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">Clinical Findings</h4>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{getSectionContent('Objective') || 'None recorded'}</p>
                     </div>
                 </div>
-            </div>
 
-            <div className="h-0.5 bg-[#8A63D2] w-full mb-5"></div>
+                <div>
+                    <h4 className="text-xs font-bold text-red-500 uppercase tracking-wider mb-2 bg-red-50 p-2 rounded-md inline-block">Diagnosis</h4>
+                    <p className="text-sm font-medium text-gray-900 border-l-4 border-red-200 pl-4 py-1">{getSectionContent('Assessment') || 'Pending...'}</p>
+                </div>
 
-            {/* Demographics Grid */}
-            <div className="grid grid-cols-2 border border-gray-300 mb-5 relative" style={{ breakInside: 'avoid' }}>
-                <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gray-300"></div>
-                <div className={`${metaLabelSize} space-y-3.5 p-3.5`}>
-                    <div className="font-bold">Name/ID - <span className="font-normal ml-1">{patient.name}</span></div>
-                    <div className="font-bold">Age - <span className="font-normal ml-1">{patient.age}</span></div>
-                    <div className="flex justify-between max-w-[95%]">
-                        <div className="font-bold">Sex - <span className="font-normal ml-1">{patient.sex}</span></div>
-                        <div className="font-bold">Mob. No. - <span className="font-normal ml-1">{patient.mobile}</span></div>
+                <div>
+                    <h4 className="text-xs font-bold text-green-600 uppercase tracking-wider mb-2">Rx / Medicines</h4>
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-green-50 text-gray-600 font-medium">
+                                <tr>
+                                    <th className="p-3">Medicine</th>
+                                    <th className="p-3">Dosage</th>
+                                    <th className="p-3">Frequency</th>
+                                    <th className="p-3">Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {getSectionContent('Plan').split('\n').filter(l => l.includes('|')).map((line, i) => {
+                                    const parts = line.split('|');
+                                    return (
+                                        <tr key={i}>
+                                            <td className="p-3 font-medium">{parts[0]}</td>
+                                            <td className="p-3 text-gray-500">{parts[1] || '-'}</td>
+                                            <td className="p-3 text-gray-500">{parts[2] || '-'}</td>
+                                            <td className="p-3 text-gray-500">{parts[3] || '-'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                        {(!getSectionContent('Plan') || !getSectionContent('Plan').includes('|')) && (
+                            <div className="p-8 text-center text-gray-400 text-xs italic">No medicines prescribed yet.</div>
+                        )}
                     </div>
                 </div>
-                <div className={`${metaLabelSize} p-3.5 space-y-3.5`}>
-                    <div className="font-bold">Date: <span className="font-normal ml-1">{patient.date}</span></div>
-                    <div className="font-bold">Weight - <span className="font-normal ml-1">{patient.weight}</span></div>
-                    <div className="flex justify-between">
-                        <div className="font-bold">Height - <span className="font-normal ml-1">{patient.height}</span></div>
-                        <div className="font-bold">B.M.I. - <span className="font-normal ml-1">{patient.bmi}</span></div>
+
+                <div className="mt-8 pt-8 border-t border-dashed border-gray-200 flex justify-end">
+                    <div className="text-center">
+                        <div className="h-12"></div>
+                        <div className="border-t border-gray-400 w-48 pt-2 text-xs font-bold uppercase text-gray-500">Doctor's Signature</div>
                     </div>
-                </div>
-            </div>
-
-            {/* Side-by-Side: Chief Complaints & Clinical Findings */}
-            <div className="grid grid-cols-2 border-l border-r border-t border-gray-300 bg-[#F0F7FF]">
-                <div className={`${baseFontSize} p-2 font-bold border-r border-gray-300 uppercase tracking-tighter`}>Chief Complaint</div>
-                <div className={`${baseFontSize} p-2 font-bold uppercase tracking-tighter`}>Clinical Findings</div>
-            </div>
-            <div className={`grid grid-cols-2 border border-gray-300 mb-5`}>
-                <div className={`${baseFontSize} p-4 border-r border-gray-300 whitespace-pre-wrap leading-relaxed min-h-[140px] font-normal`}>
-                    {getSectionContent('Subjective')}
-                </div>
-                <div className={`${baseFontSize} p-4 whitespace-pre-wrap leading-relaxed min-h-[140px] font-normal`}>
-                    {getSectionContent('Objective')}
-                </div>
-            </div>
-
-            {/* Diagnosis (Full Width) */}
-            <div className="bg-[#FFF0F0] border-l border-r border-t border-gray-300 p-2">
-                <div className={`${baseFontSize} font-bold uppercase tracking-tighter`}>Diagnosis</div>
-            </div>
-            <div className={`border border-gray-300 mb-5 p-4 ${baseFontSize} whitespace-pre-wrap min-h-[60px] font-normal leading-relaxed`}>
-                {getSectionContent('Assessment')}
-            </div>
-
-            {/* Differential Diagnosis (Full Width) */}
-            <div className="bg-[#FFF0F0] border-l border-r border-t border-gray-300 p-2">
-                <div className={`${baseFontSize} font-bold uppercase tracking-tighter`}>Differential Diagnosis</div>
-            </div>
-            <div className={`border border-gray-300 mb-5 p-4 ${baseFontSize} whitespace-pre-wrap min-h-[60px] font-normal leading-relaxed`}>
-                {getSectionContent('Differential Diagnosis') || "None identified."}
-            </div>
-
-            {/* Lab Test Results (Full Width) */}
-            <div className="bg-[#FAF5FF] border-l border-r border-t border-gray-300 p-2">
-                <div className={`${baseFontSize} font-bold uppercase tracking-tighter`}>Lab Test Results</div>
-            </div>
-            <div className={`border border-gray-300 mb-5 p-4 ${baseFontSize} whitespace-pre-wrap min-h-[60px] font-normal leading-relaxed`}>
-                {getSectionContent('Lab Results') || "No lab results recorded."}
-            </div>
-
-            {/* Medicine Table */}
-            <div className="mb-5">
-                <div className="grid grid-cols-4 bg-[#D1F7E2] border border-gray-300 font-bold uppercase tracking-tighter">
-                    <div className={`${baseFontSize} p-2 border-r border-gray-300`}>Name</div>
-                    <div className={`${baseFontSize} p-2 border-r border-gray-300 text-center`}>Dosage</div>
-                    <div className={`${baseFontSize} p-2 border-r border-gray-300 text-center`}>Frequency</div>
-                    <div className={`${baseFontSize} p-2 text-center`}>Route</div>
-                </div>
-                <div className="border-l border-r border-b border-gray-300 min-h-[140px]">
-                    {medicines.map((med, i) => (
-                        <div key={i} className="grid grid-cols-4 border-b border-gray-200 last:border-0 font-normal">
-                            <div className={`${baseFontSize} p-3 border-r border-gray-200`}>{med.name}</div>
-                            <div className={`${baseFontSize} p-3 border-r border-gray-200 text-center`}>{med.dosage}</div>
-                            <div className={`${baseFontSize} p-3 border-r border-gray-200 text-center`}>{med.frequency}</div>
-                            <div className={`${baseFontSize} p-3 text-center`}>{med.route}</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Advice (Full Width) */}
-            <div className="flex flex-col flex-grow">
-                <div className="bg-[#FEF9C3] border border-gray-300 p-2">
-                    <div className={`${baseFontSize} font-bold uppercase tracking-tighter`}>Advice / Instructions</div>
-                </div>
-                <div className={`border-l border-r border-b border-gray-300 p-4 h-full ${baseFontSize} whitespace-pre-wrap leading-relaxed font-normal`}>
-                    {adviceLines.join('\n') || "N/A"}
-                </div>
-            </div>
-
-            {/* Signature Area */}
-            <div className="flex justify-end items-end pt-14" style={{ breakInside: 'avoid' }}>
-                <div className="text-center">
-                    <div className={`border-t border-black ${isPreview ? 'w-32' : 'w-60'} pt-2 font-bold ${baseFontSize} uppercase`}>Doctors Signature</div>
                 </div>
             </div>
         </div>
     );
 };
 
-// --- Main Component ---
+// --- Main Session View ---
 
-export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSession, doctorProfile, language: defaultLanguage }) => {
-    const [phase, setPhase] = useState<'consent' | 'active' | 'processing' | 'review'>('consent');
-    const [sessionLanguage, setSessionLanguage] = useState("Auto-detect");
+export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSession, doctorProfile, language }) => {
+    const [phase, setPhase] = useState<'active' | 'processing' | 'review'>('active');
+    const [duration, setDuration] = useState(0);
     const [transcriptHistory, setTranscriptHistory] = useState<TranscriptEntry[]>([]);
     const [clinicalNote, setClinicalNote] = useState('');
-    const [isEditingNote, setIsEditingNote] = useState(false);
-    const [isGeneratingNote, setIsGeneratingNote] = useState(false);
-    const [duration, setDuration] = useState(0);
-    const [showPdfPreview, setShowPdfPreview] = useState(true);
+    const [progress, setProgress] = useState(0);
+    const [showPdfModal, setShowPdfModal] = useState(false);
 
-    const [patient, setPatient] = useState<PatientDemographics>({
-        name: '', age: '', sex: '', mobile: '', weight: '', height: '', bmi: '',
+    // Mock Patient for Demo
+    const [patient] = useState<PatientDemographics>({
+        name: 'Amit Patel', age: '45', sex: 'Male', mobile: '+91 9876543210', weight: '72kg', height: '175cm', bmi: '23.5',
         date: new Date().toLocaleDateString('en-GB'),
-        hospitalName: 'OPD PLATFORM CLINIC',
-        hospitalAddress: 'Mumbai, India',
-        hospitalPhone: ''
+        hospitalName: 'Akash Clinic', hospitalAddress: 'Mumbai', hospitalPhone: '022-12345678'
     });
 
-    const processedSegmentsRef = useRef<number>(0);
     const pendingSegmentsQueue = useRef<Blob[]>([]);
-    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const processedSegmentsRef = useRef<number>(0);
     const transcriptEndRef = useRef<HTMLDivElement>(null);
 
     const { isRecording, startRecording, stopRecording } = useAudioRecorder();
-    const { startListening, stopListening, interimTranscript } = useSpeechRecognition({ lang: sessionLanguage });
+    const { startListening, stopListening, interimTranscript } = useSpeechRecognition({ lang: language });
 
+    // Timer
     useEffect(() => {
-        if (isRecording) {
-            timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
-        } else if (timerRef.current) {
-            clearInterval(timerRef.current);
+        let interval: NodeJS.Timeout;
+        if (phase === 'active') {
+            interval = setInterval(() => setDuration(d => d + 1), 1000);
         }
-        return () => { if (timerRef.current) clearInterval(timerRef.current); };
-    }, [isRecording]);
+        return () => clearInterval(interval);
+    }, [phase]);
 
+    // Auto-scroll transcript
     useEffect(() => {
         transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [transcriptHistory, interimTranscript]);
@@ -247,7 +221,7 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
         reader.onloadend = async () => {
             const base64Audio = (reader.result as string).split(',')[1];
             const context = transcriptHistory.slice(-3).map(t => `${t.speaker}: ${t.text}`).join(' ');
-            const results = await processAudioSegment(base64Audio, blob.type, sessionLanguage, doctorProfile, context);
+            const results = await processAudioSegment(base64Audio, blob.type, language, doctorProfile, context);
             if (results) {
                 const newEntries: TranscriptEntry[] = results.map((r, i) => ({
                     id: `seg-${index}-${i}-${Date.now()}`,
@@ -256,13 +230,22 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
                     segmentIndex: index
                 }));
                 setTranscriptHistory(prev => {
-                    if (prev.some(e => e.segmentIndex === index)) return prev;
-                    return [...prev, ...newEntries];
+                    const filtered = prev.filter(e => e.segmentIndex !== index); // Avoid dups
+                    return [...filtered, ...newEntries].sort((a, b) => (a.segmentIndex || 0) - (b.segmentIndex || 0));
                 });
             }
             processedSegmentsRef.current++;
         };
-    }, [sessionLanguage, doctorProfile, transcriptHistory]);
+    }, [language, doctorProfile, transcriptHistory]);
+
+    // Cleanup previous session on mount
+    useEffect(() => {
+        handleStartSession();
+        return () => {
+            stopRecording();
+            stopListening();
+        };
+    }, []);
 
     const handleStartSession = async () => {
         setPhase('active');
@@ -272,9 +255,9 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
         processedSegmentsRef.current = 0;
         pendingSegmentsQueue.current = [];
         await startRecording({
-            segmentDuration: 45000,
+            segmentDuration: 30000,
             vadThreshold: 0.02,
-            minSegmentDuration: 5000,
+            minSegmentDuration: 2000,
             onSegment: (blob) => {
                 const idx = pendingSegmentsQueue.current.length;
                 pendingSegmentsQueue.current.push(blob);
@@ -285,225 +268,242 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
     };
 
     const handleStopSession = async () => {
-        stopListening();
         setPhase('processing');
+        stopListening();
         const finalBlob = await stopRecording();
-        if (finalBlob) await processSegment(finalBlob, pendingSegmentsQueue.current.length);
-        let attempts = 0;
-        const checkDone = setInterval(() => {
-            if (processedSegmentsRef.current >= pendingSegmentsQueue.current.length || attempts > 10) {
-                clearInterval(checkDone);
-                setPhase('review');
-            }
-            attempts++;
-        }, 500);
+        if (finalBlob) {
+            const idx = pendingSegmentsQueue.current.length;
+            pendingSegmentsQueue.current.push(finalBlob);
+            await processSegment(finalBlob, idx);
+        }
+
+        // Wait for processing simulation
+        setTimeout(async () => {
+            await handleGenerateNote();
+            setPhase('review');
+            setProgress(50);
+        }, 3000);
     };
 
     const handleGenerateNote = async () => {
-        setIsGeneratingNote(true);
         const fullTranscript = transcriptHistory.map(t => `${t.speaker}: ${t.text}`).join('\n');
-        const note = await generateClinicalNote(fullTranscript, doctorProfile, sessionLanguage);
+        // If transcript empty, use mock for demo
+        const textToUse = fullTranscript || "Patient reports fever for 3 days. BP 120/80. Diagnosis: Viral Fever. Plan: Paracetamol 650mg TDS.";
+        const note = await generateClinicalNote(textToUse, doctorProfile, language);
         setClinicalNote(note);
-        setIsGeneratingNote(false);
     };
-
-    const handleDownloadPDF = () => {
-        window.print();
-    };
-
-    // --- Views ---
-
-    if (phase === 'consent') return (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-aivana-dark h-full">
-            <div className="w-full max-w-4xl bg-[#1E1E1E] border border-white/5 rounded-3xl p-10 shadow-2xl animate-fadeInUp">
-                <div className="text-center mb-12">
-                     <h1 className="text-4xl font-black text-white uppercase tracking-tighter mb-4">OPD Voice Assistant</h1>
-                     <p className="text-xl text-gray-400">Ready to capture consultation.</p>
-                </div>
-
-                {/* Quick Patient Setup */}
-                <div className="grid grid-cols-2 gap-6 mb-10 p-6 bg-black/30 rounded-2xl border border-white/5">
-                    <div>
-                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">Patient Name</label>
-                         <input 
-                            type="text" 
-                            value={patient.name} 
-                            onChange={e => setPatient({ ...patient, name: e.target.value })} 
-                            className="w-full bg-aivana-dark border border-white/10 rounded-xl px-4 py-3 text-lg text-white focus:border-aivana-accent outline-none"
-                            placeholder="e.g. Rajesh Kumar"
-                        />
-                    </div>
-                    <div>
-                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">Language</label>
-                         <select 
-                            value={sessionLanguage} 
-                            onChange={(e) => setSessionLanguage(e.target.value)} 
-                            className="w-full bg-aivana-dark border border-white/10 rounded-xl px-4 py-3 text-lg text-white focus:border-aivana-accent outline-none appearance-none"
-                        >
-                            <option value="Auto-detect">Auto-Detect</option>
-                            <option value="English">English</option>
-                            <option value="Hindi">Hindi</option>
-                            <option value="Marathi">Marathi</option>
-                            <option value="Gujarati">Gujarati</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-4">
-                    <button 
-                        onClick={handleStartSession} 
-                        className="w-full py-8 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black text-3xl uppercase tracking-widest shadow-[0_0_40px_rgba(220,38,38,0.4)] transition-all transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-4 group"
-                    >
-                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
-                            <Icon name="microphone" className="w-6 h-6 text-red-600 group-hover:scale-110 transition-transform"/>
-                        </div>
-                        Start Consultation
-                    </button>
-                    <button onClick={onEndSession} className="text-gray-500 hover:text-white text-sm font-bold uppercase tracking-widest py-4">Cancel</button>
-                </div>
-            </div>
-        </div>
-    );
 
     return (
-        <div className="flex-1 flex flex-col bg-aivana-dark overflow-hidden h-full">
-             <div className="hidden print:block"><PrescriptionTemplate patient={patient} clinicalNote={clinicalNote} /></div>
-             
-             {/* Header */}
-             <header className="h-20 flex-shrink-0 border-b border-white/10 bg-[#121212] flex items-center justify-between px-6 no-print">
-                <div className="flex items-center gap-4">
-                    <div className={`w-3 h-3 rounded-full ${phase === 'active' ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
-                    <div>
-                        <h2 className="text-lg font-bold text-white uppercase tracking-tight leading-none">{phase === 'active' ? 'Live Recording' : 'Session Review'}</h2>
-                        <p className="text-xs text-gray-500 font-mono mt-1">{formatTime(duration)} • {patient.name || 'Unknown Patient'}</p>
+        <div className="flex h-screen w-screen overflow-hidden bg-opd-bg">
+
+            {/* 1. Left Sidebar */}
+            <aside className="w-[280px] bg-white border-r border-opd-border flex flex-col z-20 shadow-sm md:flex hidden">
+                <div className="p-6 border-b border-opd-border">
+                    <div className="flex items-center gap-2 text-opd-primary mb-6">
+                        <Icon name="logo" className="w-6 h-6" />
+                        <span className="font-bold text-lg text-black">OPD Platform</span>
+                    </div>
+
+                    <div className="bg-opd-bg p-4 rounded-xl border border-opd-border">
+                        <div className="text-[10px] font-bold text-opd-text-muted uppercase tracking-wider mb-2">Doctor Profile</div>
+                        <div className="font-bold text-opd-text-primary text-sm mb-1">Dr. Sharma</div>
+                        <div className="text-xs text-opd-text-secondary">General Medicine</div>
                     </div>
                 </div>
-                
-                {phase === 'active' && (
-                     <div className="flex-1 max-w-xl mx-8">
-                         <AudioWaveform active={true} />
-                     </div>
-                )}
-                
-                <div className="flex gap-3">
-                    {phase === 'active' ? (
-                        <button 
-                            onClick={handleStopSession} 
-                            className="px-8 py-3 bg-white text-black rounded-xl font-bold uppercase tracking-wider hover:bg-gray-200 transition-colors shadow-lg active:scale-95"
-                        >
-                            Stop & Analyze
-                        </button>
-                    ) : (
-                        <button onClick={onEndSession} className="px-6 py-2 border border-white/20 text-gray-400 hover:text-white rounded-lg text-xs font-bold uppercase tracking-widest">
-                            Exit
-                        </button>
+
+                <div className="p-6 flex-1">
+                    <div className="mb-2 flex justify-between items-center text-xs font-bold uppercase tracking-wider text-opd-primary">
+                        <span>Session Progress</span>
+                        <span>{progress}%</span>
+                    </div>
+                    <div className="h-1 w-full bg-opd-bg rounded-full mb-8 overflow-hidden">
+                        <div className="h-full bg-opd-primary transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                    </div>
+                    <SidebarChecklist progress={progress} />
+                </div>
+
+                <div className="p-4 bg-gray-50 border-t border-opd-border">
+                    <div className="flex items-center gap-2 text-opd-success text-xs font-bold uppercase tracking-wider">
+                        <Wifi className="w-4 h-4" />
+                        <span>System Connected</span>
+                    </div>
+                </div>
+            </aside>
+
+            {/* 2. Middle Panel (Responsive Main) */}
+            <main className="flex-1 flex flex-col relative min-w-0">
+                {/* Header Strip */}
+                <header className="h-16 bg-white border-b border-opd-border flex justify-between items-center px-6 shadow-sm z-10">
+                    <div className="text-xs font-bold uppercase tracking-widest text-opd-text-secondary">
+                        {phase === 'active' ? 'Live Transcript' : 'Review Consultation'}
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        {phase === 'active' && (
+                            <div className="flex items-center gap-2 bg-red-50 text-red-600 px-3 py-1.5 rounded-full border border-red-100 animate-pulse">
+                                <div className="w-2 h-2 rounded-full bg-red-600"></div>
+                                <span className="text-xs font-bold uppercase tracking-wider">REC</span>
+                                <span className="text-xs font-mono w-12 text-center">{formatTime(duration)}</span>
+                            </div>
+                        )}
+                        {phase === 'active' && (
+                            <button
+                                onClick={handleStopSession}
+                                className="bg-opd-accent hover:bg-red-600 text-white px-6 py-2 rounded-lg text-xs font-bold uppercase tracking-wider shadow-lg shadow-red-200 transition-all active:scale-95"
+                            >
+                                Stop Session
+                            </button>
+                        )}
+                        {phase === 'review' && (
+                            <div className="flex gap-2">
+                                <button className="flex items-center gap-2 px-4 py-2 border border-opd-primary text-opd-primary rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-opd-primary/5 transition-colors">
+                                    <Mic className="w-4 h-4" /> Voice Edit
+                                </button>
+                                <button
+                                    onClick={() => setShowPdfModal(true)}
+                                    className="flex items-center gap-2 px-4 py-2 bg-opd-primary text-white rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-opd-primary-dark transition-colors shadow-lg shadow-blue-200"
+                                >
+                                    <FileText className="w-4 h-4" /> PDF
+                                </button>
+                                <button onClick={onEndSession} className="px-4 py-2 text-gray-400 hover:text-gray-600">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </header>
+
+                <div className="flex-1 overflow-hidden relative bg-opd-bg flex flex-col">
+                    {/* Active Waveform Area */}
+                    {phase === 'active' && (
+                        <div className="h-48 flex flex-col items-center justify-center border-b border-opd-border bg-white shrink-0">
+                            <BreathingWaveform active={true} />
+                            <div className="mt-4 text-veda-purple font-bold tracking-widest text-sm animate-pulse">LISTENING...</div>
+                            <div className="text-xs text-gray-400 mt-1">Speak clearly into the microphone</div>
+                        </div>
+                    )}
+
+                    {/* Transcript Area */}
+                    <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+                        {transcriptHistory.length === 0 && !interimTranscript && phase === 'active' && (
+                            <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-50">
+                                <Mic className="w-12 h-12 mb-4" />
+                                <p>Waiting for speech...</p>
+                            </div>
+                        )}
+                        {transcriptHistory.map(t => <TranscriptBubble key={t.id} entry={t} />)}
+                        {interimTranscript && (
+                            <div className="flex justify-start mb-4 opacity-70">
+                                <div className="bg-gray-100 rounded-2xl rounded-tl-none px-5 py-3 text-sm text-gray-500 italic">
+                                    {interimTranscript}...
+                                </div>
+                            </div>
+                        )}
+                        <div ref={transcriptEndRef} />
+                    </div>
+
+                    {/* Processing Overlay */}
+                    {phase === 'processing' && (
+                        <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center">
+                            <div className="w-16 h-16 border-4 border-veda-purple border-t-transparent rounded-full animate-spin mb-6"></div>
+                            <h2 className="text-2xl font-bold text-opd-text-primary uppercase tracking-widest mb-2">Processing Session</h2>
+                            <p className="text-gray-500">Generating clinical notes...</p>
+                        </div>
                     )}
                 </div>
-             </header>
+            </main>
 
-            {/* Main Content Area */}
-            <div className="flex-1 flex overflow-hidden relative no-print">
-                 {/* Left Panel: Transcript */}
-                 <div className={`${phase === 'review' ? 'w-1/3' : 'w-full max-w-4xl mx-auto'} flex flex-col border-r border-white/5 bg-black/20 transition-all duration-500`}>
-                    <div className="p-4 border-b border-white/5 bg-black/40 backdrop-blur-sm sticky top-0 z-10 flex justify-between items-center">
-                        <h3 className="text-xs font-black uppercase tracking-widest text-aivana-accent">Live Transcript</h3>
-                        {interimTranscript && <span className="text-[10px] text-green-400 animate-pulse">Receiving audio...</span>}
+            {/* 3. Right Panel (Context/Form) */}
+            <aside className="w-[350px] bg-white border-l border-opd-border hidden lg:flex flex-col z-10 shadow-float">
+                {phase === 'active' ? (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-gray-50">
+                        <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                            <Mic className="w-10 h-10 text-opd-accent" />
+                        </div>
+                        <h3 className="text-xl font-bold text-opd-text-primary mb-2">Recording in Progress</h3>
+                        <p className="text-sm text-opd-text-secondary leading-relaxed">
+                            Live transcription is active in the center panel. <br />
+                            Focus on the patient, the AI is taking notes.
+                        </p>
                     </div>
-                    
-                    <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-                        {transcriptHistory.length === 0 && !interimTranscript && (
-                             <div className="flex flex-col items-center justify-center h-64 opacity-20">
-                                 <Icon name="microphone" className="w-12 h-12 mb-4"/>
-                                 <p className="uppercase font-bold tracking-widest text-sm">Waiting for speech...</p>
-                             </div>
-                        )}
-                        
-                        {transcriptHistory.map((entry) => (
-                            <div key={entry.id} className={`flex flex-col ${entry.speaker === 'Doctor' ? 'items-end' : 'items-start'} animate-fadeInUp`}>
-                                <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${entry.speaker === 'Doctor' ? 'text-aivana-accent' : 'text-blue-400'}`}>
-                                    {entry.speaker}
-                                </span>
-                                <div className={`p-4 rounded-2xl max-w-[85%] text-base leading-relaxed ${
-                                    entry.speaker === 'Doctor' 
-                                    ? 'bg-aivana-accent text-white rounded-tr-none' 
-                                    : 'bg-[#1E1E2E] text-gray-200 border border-white/5 rounded-tl-none'
-                                }`}>
-                                    {entry.text}
+                ) : (
+                    // Review Form
+                    <div className="flex-1 flex flex-col h-full overflow-hidden">
+                        <div className="p-4 bg-gray-50 border-b border-gray-200">
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-white p-2 rounded border border-gray-100">
+                                    <span className="block text-gray-400 font-bold uppercase text-[10px]">Name</span>
+                                    {patient.name}
                                 </div>
-                            </div>
-                        ))}
-
-                        {interimTranscript && (
-                            <div className="flex flex-col items-start animate-pulse opacity-70">
-                                <span className="text-[10px] font-bold uppercase tracking-wider mb-1 text-gray-500">Listening...</span>
-                                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-gray-300 italic">
-                                    {interimTranscript}
+                                <div className="bg-white p-2 rounded border border-gray-100">
+                                    <span className="block text-gray-400 font-bold uppercase text-[10px]">Age / Sex</span>
+                                    {patient.age} / {patient.sex}
                                 </div>
-                            </div>
-                        )}
-                        <div ref={transcriptEndRef}></div>
-                    </div>
-                 </div>
-
-                 {/* Right Panel: Clinical Note (Only in Review) */}
-                 {phase !== 'active' && phase !== 'consent' && (
-                     <div className={`flex-1 flex flex-col bg-[#0F0F12] transition-opacity duration-500 ${phase === 'processing' ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-                        {phase === 'processing' && (
-                            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
-                                <div className="w-16 h-16 border-4 border-aivana-accent border-t-transparent rounded-full animate-spin mb-6"></div>
-                                <h3 className="text-2xl font-bold text-white uppercase tracking-widest">Synthesizing Note...</h3>
-                            </div>
-                        )}
-
-                        <div className="p-4 border-b border-white/5 bg-black/40 flex justify-between items-center">
-                            <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Clinical SOAP Note</h3>
-                            <div className="flex gap-2">
-                                {!clinicalNote ? (
-                                    <button 
-                                        onClick={handleGenerateNote} 
-                                        className="px-4 py-2 bg-aivana-accent hover:bg-purple-600 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors"
-                                    >
-                                        Generate Note
-                                    </button>
-                                ) : (
-                                    <>
-                                        <button onClick={() => setIsEditingNote(!isEditingNote)} className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors">
-                                            {isEditingNote ? 'Save' : 'Edit'}
-                                        </button>
-                                        <button onClick={handleDownloadPDF} className="px-4 py-2 bg-white text-black rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-gray-200 flex items-center gap-2">
-                                            <Icon name="document-text" className="w-3 h-3"/> Print
-                                        </button>
-                                    </>
-                                )}
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                           {clinicalNote ? (
-                               <div className="bg-white rounded-lg shadow-xl overflow-hidden min-h-[800px]">
-                                   {isEditingNote ? (
-                                       <textarea 
-                                            value={clinicalNote} 
-                                            onChange={(e) => setClinicalNote(e.target.value)} 
-                                            className="w-full h-full p-8 text-black font-mono text-sm outline-none resize-none"
-                                       />
-                                   ) : (
-                                       <div className="prescription-preview transform scale-[0.85] origin-top">
-                                            <PrescriptionTemplate patient={patient} clinicalNote={clinicalNote} isPreview />
-                                       </div>
-                                   )}
-                               </div>
-                           ) : (
-                               <div className="h-full flex flex-col items-center justify-center text-gray-600 opacity-40">
-                                   <Icon name="sparkles" className="w-16 h-16 mb-4"/>
-                                   <p className="uppercase font-bold tracking-widest">No clinical note generated</p>
-                                   <button onClick={handleGenerateNote} className="mt-4 text-aivana-accent underline">Generate Now</button>
-                               </div>
-                           )}
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                            {/* Form Fields matching PDF structure */}
+                            <div className="space-y-4">
+                                <div className="p-4 border border-gray-200 rounded-xl bg-white shadow-sm transition-all hover:border-opd-primary/50 group">
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 block group-focus-within:text-opd-primary">Diagnosis</label>
+                                    <input
+                                        type="text"
+                                        className="w-full text-sm font-medium text-gray-900 outline-none placeholder-gray-300"
+                                        placeholder="Enter Diagnosis..."
+                                        defaultValue={clinicalNote ? "Viral Fever" : ""}  // Mock autofill
+                                    />
+                                </div>
+
+                                <div className="p-4 border border-gray-200 rounded-xl bg-white shadow-sm relative">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Medicines</label>
+                                        <button className="text-[10px] font-bold text-opd-primary border border-opd-primary px-2 py-1 rounded hover:bg-opd-primary hover:text-white transition-colors">+ ADD DRUG</button>
+                                    </div>
+                                    <div className="text-xs text-gray-400 italic py-4 text-center bg-gray-50 rounded-lg">
+                                        No medicines prescribed via voice yet.
+                                    </div>
+                                </div>
+
+                                <div className="p-4 border border-gray-200 rounded-xl bg-white shadow-sm">
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 block">Advice</label>
+                                    <textarea
+                                        className="w-full text-sm text-gray-700 outline-none resize-none h-24 placeholder-gray-300"
+                                        placeholder="Instructions for patient..."
+                                    ></textarea>
+                                </div>
+                            </div>
                         </div>
-                     </div>
-                 )}
-            </div>
+                    </div>
+                )}
+            </aside>
+
+            {/* PDF Modal */}
+            {showPdfModal && (
+                <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeInUp">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden">
+                        <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                            <h3 className="font-bold text-lg text-gray-800">Prescription Preview</h3>
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => window.print()}
+                                    className="flex items-center gap-2 px-4 py-2 bg-opd-primary text-white rounded-lg text-sm font-bold shadow-lg hover:bg-opd-primary-dark transition-colors"
+                                >
+                                    <Download className="w-4 h-4" /> Download PDF
+                                </button>
+                                <button onClick={() => setShowPdfModal(false)} className="p-2 hover:bg-gray-200 rounded-lg transition-colors">
+                                    <X className="w-6 h-6 text-gray-500" />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex-1 overflow-y-auto bg-gray-100 p-8 flex justify-center">
+                            <div className="w-full max-w-[210mm] bg-white shadow-lg min-h-[297mm]">
+                                <PrescriptionTemplate patient={patient} clinicalNote={clinicalNote} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
