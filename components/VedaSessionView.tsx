@@ -8,7 +8,7 @@ import { processAudioSegment, generateClinicalNote } from '../services/geminiSer
 import { renderMarkdownToHTML } from '../utils/markdownRenderer';
 
 interface ScribeSessionViewProps {
-    onEndSession: void;
+    onEndSession: () => void;
     doctorProfile: DoctorProfile;
     language: string;
 }
@@ -18,30 +18,33 @@ interface PatientDemographics {
     date: string; hospitalName: string; hospitalAddress: string; hospitalPhone: string;
 }
 
-// FIX: Added missing AudioWaveform component to visualize signal acquisition
-// Corrected: Explicitly using React namespace by adding import to resolve 'Cannot find namespace React'
-const AudioWaveform: React.FC = () => (
-    <div className="flex items-center justify-center gap-1 h-8 px-4">
-        {[...Array(8)].map((_, i) => (
-            <div
-                key={i}
-                className="w-1 bg-aivana-accent rounded-full animate-pulse"
-                style={{
-                    height: `${20 + Math.random() * 80}%`,
-                    animationDuration: `${0.6 + Math.random() * 0.4}s`,
-                    animationDelay: `${i * 0.05}s`
-                }}
-            ></div>
-        ))}
-    </div>
-);
+// --- Helper Components ---
+
+const AudioWaveform: React.FC<{ active: boolean }> = ({ active }) => {
+    if (!active) return <div className="h-12 w-full flex items-center justify-center text-gray-500 font-mono text-xs">MICROPHONE OFF</div>;
+    
+    return (
+        <div className="flex items-center justify-center gap-1.5 h-16 px-4">
+            {[...Array(12)].map((_, i) => (
+                <div
+                    key={i}
+                    className="w-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+                    style={{
+                        height: `${30 + Math.random() * 70}%`,
+                        animationDuration: `${0.4 + Math.random() * 0.3}s`,
+                        animationDelay: `${i * 0.05}s`
+                    }}
+                ></div>
+            ))}
+        </div>
+    );
+};
 
 const stripMarkdown = (text: string): string => {
     if (!text) return "";
     return text.replace(/^[#\s*+-]+/gm, '').replace(/[*_]{1,2}/g, '').trim();
 };
 
-// Corrected: Explicitly using React namespace by adding import to resolve 'Cannot find namespace React'
 const PrescriptionTemplate: React.FC<{ patient: PatientDemographics; clinicalNote: string; isPreview?: boolean }> = ({ patient, clinicalNote, isPreview }) => {
     const getSectionContent = (title: string) => {
         if (!clinicalNote) return "";
@@ -191,7 +194,8 @@ const PrescriptionTemplate: React.FC<{ patient: PatientDemographics; clinicalNot
     );
 };
 
-// Corrected: Explicitly using React namespace by adding import to resolve 'Cannot find namespace React'
+// --- Main Component ---
+
 export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSession, doctorProfile, language: defaultLanguage }) => {
     const [phase, setPhase] = useState<'consent' | 'active' | 'processing' | 'review'>('consent');
     const [sessionLanguage, setSessionLanguage] = useState("Auto-detect");
@@ -307,137 +311,198 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
         window.print();
     };
 
+    // --- Views ---
+
     if (phase === 'consent') return (
-        <div className="flex-1 flex items-center justify-center p-8 bg-aivana-dark">
-            <div className="bg-aivana-grey p-12 rounded-[40px] border border-aivana-light-grey max-w-lg w-full text-center shadow-2xl animate-fadeInUp">
-                <div className="w-20 h-20 bg-aivana-accent/20 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-aivana-accent/30 shadow-lg">
-                    <Icon name="logo" className="w-10 h-10 text-aivana-accent" />
+        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-aivana-dark h-full">
+            <div className="w-full max-w-4xl bg-[#1E1E1E] border border-white/5 rounded-3xl p-10 shadow-2xl animate-fadeInUp">
+                <div className="text-center mb-12">
+                     <h1 className="text-4xl font-black text-white uppercase tracking-tighter mb-4">OPD Voice Assistant</h1>
+                     <p className="text-xl text-gray-400">Ready to capture consultation.</p>
                 </div>
-                <h2 className="text-3xl font-bold text-white mb-4 uppercase tracking-tighter">Veda Assistant</h2>
-                <p className="text-gray-500 mb-10 text-sm leading-relaxed">
-                    Professional speaker segregation and clinical analysis engine. Supports 6 native Indian scripts.
-                </p>
-                <div className="space-y-4">
-                    <div className="text-left">
-                        <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest ml-1">Session Language</label>
-                        <select value={sessionLanguage} onChange={(e) => setSessionLanguage(e.target.value)} className="w-full mt-2 bg-black border border-white/10 text-white rounded-2xl px-5 py-4 font-bold outline-none">
-                            <option value="Auto-detect">Let Veda recognise the language</option>
-                            {["English", "Hindi", "Marathi", "Gujarati", "Tamil", "Telugu", "Kannada", "Malayalam", "Bengali", "Punjabi", "Odia", "Assamese", "Urdu"].map(l => <option key={l} value={l}>{l}</option>)}
+
+                {/* Quick Patient Setup */}
+                <div className="grid grid-cols-2 gap-6 mb-10 p-6 bg-black/30 rounded-2xl border border-white/5">
+                    <div>
+                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">Patient Name</label>
+                         <input 
+                            type="text" 
+                            value={patient.name} 
+                            onChange={e => setPatient({ ...patient, name: e.target.value })} 
+                            className="w-full bg-aivana-dark border border-white/10 rounded-xl px-4 py-3 text-lg text-white focus:border-aivana-accent outline-none"
+                            placeholder="e.g. Rajesh Kumar"
+                        />
+                    </div>
+                    <div>
+                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">Language</label>
+                         <select 
+                            value={sessionLanguage} 
+                            onChange={(e) => setSessionLanguage(e.target.value)} 
+                            className="w-full bg-aivana-dark border border-white/10 rounded-xl px-4 py-3 text-lg text-white focus:border-aivana-accent outline-none appearance-none"
+                        >
+                            <option value="Auto-detect">Auto-Detect</option>
+                            <option value="English">English</option>
+                            <option value="Hindi">Hindi</option>
+                            <option value="Marathi">Marathi</option>
+                            <option value="Gujarati">Gujarati</option>
                         </select>
                     </div>
-                    <button onClick={handleStartSession} className="w-full py-5 bg-aivana-accent text-white rounded-2xl font-bold text-lg shadow-2xl transition-all active:scale-95">Initiate Signal Acquisition</button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4">
+                    <button 
+                        onClick={handleStartSession} 
+                        className="w-full py-8 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black text-3xl uppercase tracking-widest shadow-[0_0_40px_rgba(220,38,38,0.4)] transition-all transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-4 group"
+                    >
+                        <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center">
+                            <Icon name="microphone" className="w-6 h-6 text-red-600 group-hover:scale-110 transition-transform"/>
+                        </div>
+                        Start Consultation
+                    </button>
+                    <button onClick={onEndSession} className="text-gray-500 hover:text-white text-sm font-bold uppercase tracking-widest py-4">Cancel</button>
                 </div>
             </div>
         </div>
     );
 
     return (
-        <div className="flex-1 flex flex-col bg-aivana-dark overflow-hidden">
-            <div className="hidden print:block"><PrescriptionTemplate patient={patient} clinicalNote={clinicalNote} /></div>
-            <header className="h-20 border-b border-aivana-light-grey bg-black relative px-8 flex items-center justify-between shadow-lg no-print">
-                {phase === 'active' && <AudioWaveform />}
-                <div className="flex items-center gap-4 relative z-10">
-                    <div className={`p-2 rounded-xl border ${phase === 'active' ? 'bg-red-500/10 border-red-500/20' : 'bg-green-500/10 border-green-500/20'}`}>
-                        {phase === 'active' ? <div className="w-5 h-5 rounded-full bg-red-500 animate-pulse"></div> : <Icon name="shieldCheck" className="w-5 h-5 text-green-500" />}
-                    </div>
+        <div className="flex-1 flex flex-col bg-aivana-dark overflow-hidden h-full">
+             <div className="hidden print:block"><PrescriptionTemplate patient={patient} clinicalNote={clinicalNote} /></div>
+             
+             {/* Header */}
+             <header className="h-20 flex-shrink-0 border-b border-white/10 bg-[#121212] flex items-center justify-between px-6 no-print">
+                <div className="flex items-center gap-4">
+                    <div className={`w-3 h-3 rounded-full ${phase === 'active' ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
                     <div>
-                        <span className="text-xs font-black text-white uppercase tracking-widest block">{phase === 'active' ? 'Signal Acquisition' : 'Clinical Finalization'}</span>
-                        <span className="text-[10px] font-bold text-gray-500 block">{formatTime(duration)}</span>
+                        <h2 className="text-lg font-bold text-white uppercase tracking-tight leading-none">{phase === 'active' ? 'Live Recording' : 'Session Review'}</h2>
+                        <p className="text-xs text-gray-500 font-mono mt-1">{formatTime(duration)} • {patient.name || 'Unknown Patient'}</p>
                     </div>
                 </div>
-                <div className="flex gap-4 relative z-10">
-                    {phase === 'active' && <button onClick={handleStopSession} className="px-6 py-2.5 bg-red-600 text-white rounded-xl text-xs font-black uppercase tracking-widest">Stop Capture</button>}
-                    <button onClick={onEndSession} className="px-5 py-2.5 rounded-xl border border-white/10 text-[10px] font-black uppercase text-gray-400 hover:text-white transition-all bg-black/50 backdrop-blur-sm">Exit Session</button>
-                </div>
-            </header>
-
-            <div className="flex-1 flex overflow-hidden relative no-print">
-                {phase === 'processing' && (
-                    <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex flex-col items-center justify-center text-center p-8">
-                        <div className="w-24 h-24 border-4 border-t-aivana-accent border-white/5 rounded-full animate-spin mb-6"></div>
-                        <h2 className="text-3xl font-bold text-white mb-4 uppercase tracking-widest">Finalizing Analysis</h2>
-                        <p className="text-gray-500 max-w-sm">Generating native clinical documentation...</p>
-                    </div>
+                
+                {phase === 'active' && (
+                     <div className="flex-1 max-w-xl mx-8">
+                         <AudioWaveform active={true} />
+                     </div>
                 )}
-
-                <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar bg-black/10">
-                    {transcriptHistory.length === 0 && !interimTranscript && (
-                        <div className="h-full flex flex-col items-center justify-center opacity-10">
-                            <Icon name="microphone" className="w-16 h-16 mb-4" />
-                            <p className="text-[10px] font-black uppercase tracking-[0.4em]">Listening for dialogue...</p>
-                        </div>
+                
+                <div className="flex gap-3">
+                    {phase === 'active' ? (
+                        <button 
+                            onClick={handleStopSession} 
+                            className="px-8 py-3 bg-white text-black rounded-xl font-bold uppercase tracking-wider hover:bg-gray-200 transition-colors shadow-lg active:scale-95"
+                        >
+                            Stop & Analyze
+                        </button>
+                    ) : (
+                        <button onClick={onEndSession} className="px-6 py-2 border border-white/20 text-gray-400 hover:text-white rounded-lg text-xs font-bold uppercase tracking-widest">
+                            Exit
+                        </button>
                     )}
-                    {transcriptHistory.map(entry => (
-                        <div key={entry.id} className={`flex gap-6 animate-fadeInUp ${entry.speaker === 'Doctor' ? '' : 'flex-row-reverse'}`}>
-                            <div className={`w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center border ${entry.speaker === 'Doctor' ? 'bg-aivana-accent/20 border-aivana-accent/30 text-aivana-accent' : 'bg-blue-600/20 border-blue-500/30 text-blue-400'}`}>
-                                <Icon name={entry.speaker === 'Doctor' ? 'ai' : 'user'} className="w-5 h-5" />
-                            </div>
-                            <div className={`flex flex-col max-w-[80%] ${entry.speaker === 'Doctor' ? '' : 'items-end'}`}>
-                                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-600 mb-1">{entry.speaker}</span>
-                                <div className={`px-5 py-3 rounded-2xl text-[14px] leading-relaxed shadow-md ${entry.speaker === 'Doctor' ? 'bg-aivana-grey text-white rounded-tl-none font-medium' : 'bg-blue-950/20 text-blue-100 rounded-tr-none font-medium'}`}>
+                </div>
+             </header>
+
+            {/* Main Content Area */}
+            <div className="flex-1 flex overflow-hidden relative no-print">
+                 {/* Left Panel: Transcript */}
+                 <div className={`${phase === 'review' ? 'w-1/3' : 'w-full max-w-4xl mx-auto'} flex flex-col border-r border-white/5 bg-black/20 transition-all duration-500`}>
+                    <div className="p-4 border-b border-white/5 bg-black/40 backdrop-blur-sm sticky top-0 z-10 flex justify-between items-center">
+                        <h3 className="text-xs font-black uppercase tracking-widest text-aivana-accent">Live Transcript</h3>
+                        {interimTranscript && <span className="text-[10px] text-green-400 animate-pulse">Receiving audio...</span>}
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                        {transcriptHistory.length === 0 && !interimTranscript && (
+                             <div className="flex flex-col items-center justify-center h-64 opacity-20">
+                                 <Icon name="microphone" className="w-12 h-12 mb-4"/>
+                                 <p className="uppercase font-bold tracking-widest text-sm">Waiting for speech...</p>
+                             </div>
+                        )}
+                        
+                        {transcriptHistory.map((entry) => (
+                            <div key={entry.id} className={`flex flex-col ${entry.speaker === 'Doctor' ? 'items-end' : 'items-start'} animate-fadeInUp`}>
+                                <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${entry.speaker === 'Doctor' ? 'text-aivana-accent' : 'text-blue-400'}`}>
+                                    {entry.speaker}
+                                </span>
+                                <div className={`p-4 rounded-2xl max-w-[85%] text-base leading-relaxed ${
+                                    entry.speaker === 'Doctor' 
+                                    ? 'bg-aivana-accent text-white rounded-tr-none' 
+                                    : 'bg-[#1E1E2E] text-gray-200 border border-white/5 rounded-tl-none'
+                                }`}>
                                     {entry.text}
                                 </div>
                             </div>
-                        </div>
-                    ))}
-                    {interimTranscript && (
-                        <div className="flex justify-center py-4">
-                            <div className="px-4 py-2 bg-white/[0.02] border border-white/5 rounded-full text-[12px] text-gray-600 flex items-center gap-3">
-                                <div className="w-1.5 h-1.5 rounded-full bg-aivana-accent animate-ping"></div>
-                                <span className="italic">"{interimTranscript}..."</span>
-                            </div>
-                        </div>
-                    )}
-                    <div ref={transcriptEndRef} />
-                </div>
+                        ))}
 
-                <aside className={`w-[540px] border-l border-white/5 bg-aivana-dark-sider flex flex-col overflow-hidden shadow-2xl transition-all duration-700 ${phase === 'review' ? 'translate-x-0' : 'translate-x-full'}`}>
-                    <div className="p-5 bg-black/20 border-b border-white/5 grid grid-cols-4 gap-3">
-                        <div className="col-span-4 mb-1"><h3 className="text-[10px] font-black uppercase tracking-widest text-aivana-accent">Patient Metadata</h3></div>
-                        <div className="col-span-2"><label className="text-[9px] uppercase font-bold text-gray-500 mb-1 block">Full Name</label><input type="text" value={patient.name} onChange={e => setPatient({ ...patient, name: e.target.value })} className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-xs text-white outline-none focus:border-aivana-accent transition-colors" /></div>
-                        <div className="col-span-1"><label className="text-[9px] uppercase font-bold text-gray-500 mb-1 block">Age</label><input type="text" value={patient.age} onChange={e => setPatient({ ...patient, age: e.target.value })} className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-xs text-white outline-none focus:border-aivana-accent transition-colors" /></div>
-                        <div className="col-span-1"><label className="text-[9px] uppercase font-bold text-gray-500 mb-1 block">Sex</label><input type="text" value={patient.sex} onChange={e => setPatient({ ...patient, sex: e.target.value })} className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-xs text-white outline-none focus:border-aivana-accent transition-colors" /></div>
-                    </div>
-
-                    <div className="p-6 border-b border-white/5 bg-black/40 flex flex-col gap-4">
-                        {!clinicalNote ? (
-                            <button onClick={handleGenerateNote} disabled={isGeneratingNote || transcriptHistory.length === 0} className="w-full py-4 bg-aivana-accent text-white rounded-2xl font-bold text-sm shadow-xl flex items-center justify-center gap-3 disabled:opacity-20 hover:bg-purple-600 transition-all">
-                                {isGeneratingNote ? <div className="w-4 h-4 border-2 border-t-transparent border-white rounded-full animate-spin"></div> : <Icon name="sparkles" className="w-4 h-4" />}
-                                {isGeneratingNote ? 'Generating Note...' : 'Synthesize Clinical SOAP'}
-                            </button>
-                        ) : (
-                            <div className="grid grid-cols-2 gap-4">
-                                <button onClick={() => setIsEditingNote(!isEditingNote)} className={`py-3.5 rounded-xl font-bold text-[11px] uppercase tracking-widest transition-all ${isEditingNote ? 'bg-green-600 text-white shadow-lg' : 'bg-white/5 text-gray-300 hover:bg-white/10'}`}>
-                                    {isEditingNote ? 'Save Changes' : 'Edit Analysis'}
-                                </button>
-                                <button onClick={handleDownloadPDF} className="py-3.5 bg-aivana-accent text-white rounded-xl font-bold text-[11px] uppercase tracking-widest shadow-lg shadow-aivana-accent/30 hover:bg-purple-600 transition-all">Export Prescription</button>
+                        {interimTranscript && (
+                            <div className="flex flex-col items-start animate-pulse opacity-70">
+                                <span className="text-[10px] font-bold uppercase tracking-wider mb-1 text-gray-500">Listening...</span>
+                                <div className="p-4 rounded-2xl bg-white/5 border border-white/10 text-gray-300 italic">
+                                    {interimTranscript}
+                                </div>
                             </div>
                         )}
+                        <div ref={transcriptEndRef}></div>
                     </div>
+                 </div>
 
-                    <div className="flex-1 overflow-y-auto custom-scrollbar bg-black/10">
-                        {clinicalNote ? (
-                            <div className="p-6 space-y-10">
-                                <section>
-                                    <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-600 mb-5">Draft Preview</h4>
-                                    {isEditingNote ? (
-                                        <textarea value={clinicalNote} onChange={(e) => setClinicalNote(e.target.value)} className="w-full h-72 bg-transparent text-gray-200 text-sm leading-relaxed outline-none resize-none font-mono p-5 rounded-2xl border border-white/10 bg-white/[0.02]" spellCheck={false} />
-                                    ) : (
-                                        <div className="animate-fadeInUp prose prose-invert prose-sm max-w-none text-gray-300 leading-relaxed font-medium" dangerouslySetInnerHTML={{ __html: renderMarkdownToHTML(clinicalNote) }} />
-                                    )}
-                                </section>
-
-                                <section className="pt-8 border-t border-white/5">
-                                    <button onClick={() => setShowPdfPreview(!showPdfPreview)} className="w-full flex items-center justify-between p-4 rounded-xl hover:bg-white/5 transition-all mb-4 group">
-                                        <div className="flex items-center gap-3"><Icon name="document-text" className="w-5 h-5 text-aivana-accent" /><span className="text-[11px] font-bold uppercase tracking-widest text-gray-500 group-hover:text-white transition-colors">Digital Prescription Preview</span></div>
-                                        <Icon name="chevronDown" className={`w-4 h-4 text-gray-600 transition-transform duration-300 ${showPdfPreview ? 'rotate-180' : ''}`} />
-                                    </button>
-                                    {showPdfPreview && <div className="animate-fadeInUp shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden border border-white/5"><PrescriptionTemplate patient={patient} clinicalNote={clinicalNote} isPreview /></div>}
-                                </section>
+                 {/* Right Panel: Clinical Note (Only in Review) */}
+                 {phase !== 'active' && phase !== 'consent' && (
+                     <div className={`flex-1 flex flex-col bg-[#0F0F12] transition-opacity duration-500 ${phase === 'processing' ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+                        {phase === 'processing' && (
+                            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+                                <div className="w-16 h-16 border-4 border-aivana-accent border-t-transparent rounded-full animate-spin mb-6"></div>
+                                <h3 className="text-2xl font-bold text-white uppercase tracking-widest">Synthesizing Note...</h3>
                             </div>
-                        ) : <div className="h-full flex flex-col items-center justify-center text-center opacity-10"><Icon name="document-text" className="w-16 h-16 mb-4" /><p className="text-[10px] font-black uppercase tracking-[0.4em]">Awaiting Analysis</p></div>}
-                    </div>
-                </aside>
+                        )}
+
+                        <div className="p-4 border-b border-white/5 bg-black/40 flex justify-between items-center">
+                            <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">Clinical SOAP Note</h3>
+                            <div className="flex gap-2">
+                                {!clinicalNote ? (
+                                    <button 
+                                        onClick={handleGenerateNote} 
+                                        className="px-4 py-2 bg-aivana-accent hover:bg-purple-600 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors"
+                                    >
+                                        Generate Note
+                                    </button>
+                                ) : (
+                                    <>
+                                        <button onClick={() => setIsEditingNote(!isEditingNote)} className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-colors">
+                                            {isEditingNote ? 'Save' : 'Edit'}
+                                        </button>
+                                        <button onClick={handleDownloadPDF} className="px-4 py-2 bg-white text-black rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-gray-200 flex items-center gap-2">
+                                            <Icon name="document-text" className="w-3 h-3"/> Print
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                           {clinicalNote ? (
+                               <div className="bg-white rounded-lg shadow-xl overflow-hidden min-h-[800px]">
+                                   {isEditingNote ? (
+                                       <textarea 
+                                            value={clinicalNote} 
+                                            onChange={(e) => setClinicalNote(e.target.value)} 
+                                            className="w-full h-full p-8 text-black font-mono text-sm outline-none resize-none"
+                                       />
+                                   ) : (
+                                       <div className="prescription-preview transform scale-[0.85] origin-top">
+                                            <PrescriptionTemplate patient={patient} clinicalNote={clinicalNote} isPreview />
+                                       </div>
+                                   )}
+                               </div>
+                           ) : (
+                               <div className="h-full flex flex-col items-center justify-center text-gray-600 opacity-40">
+                                   <Icon name="sparkles" className="w-16 h-16 mb-4"/>
+                                   <p className="uppercase font-bold tracking-widest">No clinical note generated</p>
+                                   <button onClick={handleGenerateNote} className="mt-4 text-aivana-accent underline">Generate Now</button>
+                               </div>
+                           )}
+                        </div>
+                     </div>
+                 )}
             </div>
         </div>
     );
