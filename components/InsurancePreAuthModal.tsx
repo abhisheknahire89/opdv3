@@ -45,6 +45,7 @@ export const InsurancePreAuthModal: React.FC<InsurancePreAuthModalProps> = ({
     const [medicalNecessity, setMedicalNecessity] = useState('');
     const [doctorConfirmed, setDoctorConfirmed] = useState(false);
     const [generatingStatement, setGeneratingStatement] = useState(false);
+    const [selectedDxIndex, setSelectedDxIndex] = useState(0);
 
     const [formData, setFormData] = useState<Partial<IRDAIPreAuthForm>>({
         metadata: {
@@ -191,6 +192,20 @@ export const InsurancePreAuthModal: React.FC<InsurancePreAuthModalProps> = ({
         setFormData(prev => ({ ...prev, ...updates }));
     };
 
+    const handleDiagnosisSelect = (index: number) => {
+        setSelectedDxIndex(index);
+        if (nexusOutput && nexusOutput.ddx[index]) {
+            const dx = nexusOutput.ddx[index];
+            updateFormData({
+                section4_ClinicalDetails: {
+                    ...formData.section4_ClinicalDetails as any,
+                    provisionalDiagnosis: dx.diagnosis,
+                    chiefComplaints: dx.rationale,
+                }
+            });
+        }
+    };
+
     useEffect(() => {
         if (nexusOutput?.voiceCapturedFindings) {
             setTestResults(nexusOutput.voiceCapturedFindings);
@@ -234,7 +249,7 @@ export const InsurancePreAuthModal: React.FC<InsurancePreAuthModalProps> = ({
         setTimeout(() => {
             const submission = createPreAuthSubmission(
                 nexusOutput,
-                0,
+                selectedDxIndex,
                 severityOverride.overridden ? {
                     original: nexusOutput.severity.phenoIntensity,
                     overridden: Number(severityOverride.newSeverity) || 0,
@@ -344,7 +359,8 @@ export const InsurancePreAuthModal: React.FC<InsurancePreAuthModalProps> = ({
                     {currentStep === 1 && (
                         <InsuranceStepReview
                             nexusData={nexusOutput}
-                            primaryDiagnosis={nexusOutput.ddx.length > 0 ? nexusOutput.ddx[0] : null}
+                            selectedDiagnosisIndex={selectedDxIndex}
+                            onDiagnosisSelect={handleDiagnosisSelect}
                             patientName={patientInfo.name}
                             severityOverride={severityOverride}
                             onSeverityOverrideChange={setSeverityOverride}

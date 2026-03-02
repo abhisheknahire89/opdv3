@@ -3,7 +3,8 @@ import { NexusInsuranceInput, DdxItem } from '../types';
 
 interface InsuranceStepReviewProps {
     nexusData: NexusInsuranceInput;
-    primaryDiagnosis: DdxItem | null;
+    selectedDiagnosisIndex: number;
+    onDiagnosisSelect: (index: number) => void;
     onSeverityOverrideChange: (override: { overridden: boolean; newSeverity: string; justification: string }) => void;
     severityOverride: { overridden: boolean; newSeverity: string; justification: string };
     patientName: string;
@@ -11,12 +12,13 @@ interface InsuranceStepReviewProps {
 
 export const InsuranceStepReview: React.FC<InsuranceStepReviewProps> = ({
     nexusData,
-    primaryDiagnosis,
+    selectedDiagnosisIndex,
+    onDiagnosisSelect,
     onSeverityOverrideChange,
     severityOverride,
     patientName
 }) => {
-    if (!nexusData || !primaryDiagnosis) return null;
+    if (!nexusData || nexusData.ddx.length === 0) return null;
 
     const handleOverrideToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
         onSeverityOverrideChange({ ...severityOverride, overridden: e.target.checked });
@@ -34,11 +36,48 @@ export const InsuranceStepReview: React.FC<InsuranceStepReviewProps> = ({
         <div className="space-y-6 text-gray-200">
             <div>
                 <h3 className="text-lg font-semibold text-white border-b border-gray-700 pb-2 mb-4">
-                    Patient & Diagnosis
+                    Patient & Diagnosis Approval
                 </h3>
-                <p className="mb-2"><span className="text-gray-400">Patient:</span> {patientName}</p>
-                <p className="mb-2"><span className="text-gray-400">Primary Diagnosis:</span> {primaryDiagnosis.diagnosis}</p>
-                <p className="mb-2"><span className="text-gray-400">Rationale:</span> {primaryDiagnosis.rationale}</p>
+                <p className="mb-4"><span className="text-gray-400">Patient:</span> {patientName}</p>
+
+                <p className="text-sm text-gray-400 mb-2">Select the Provisional Diagnosis to proceed:</p>
+                <div className="space-y-3">
+                    {nexusData.ddx.map((dx, idx) => (
+                        <div
+                            key={idx}
+                            onClick={() => onDiagnosisSelect(idx)}
+                            className={`p-4 rounded-lg border cursor-pointer transition-all duration-200 ${selectedDiagnosisIndex === idx
+                                    ? 'bg-blue-900/40 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.1)]'
+                                    : 'bg-gray-800 border-gray-700 hover:border-gray-500'
+                                }`}
+                        >
+                            <div className="flex items-start gap-3">
+                                <div className="mt-1">
+                                    <input
+                                        type="radio"
+                                        checked={selectedDiagnosisIndex === idx}
+                                        onChange={() => onDiagnosisSelect(idx)}
+                                        className="w-4 h-4 text-blue-500 bg-gray-700 border-gray-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+                                    />
+                                </div>
+                                <div className="flex-1">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <h4 className={`font-semibold ${selectedDiagnosisIndex === idx ? 'text-blue-400' : 'text-gray-200'}`}>
+                                            {dx.diagnosis}
+                                        </h4>
+                                        <span className={`text-xs px-2 py-1 rounded-full ${dx.confidence === 'High' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                                                dx.confidence === 'Medium' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
+                                                    'bg-red-500/20 text-red-400 border border-red-500/30'
+                                            }`}>
+                                            {dx.confidence} Confidence
+                                        </span>
+                                    </div>
+                                    <p className="text-sm text-gray-400">{dx.rationale}</p>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
 
             <div>
