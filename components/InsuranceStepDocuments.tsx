@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { VoiceCapturedFinding, UploadedDocument } from '../types';
 import { TestResultCard } from './TestResultCard';
+import { getRequiredDocuments, guessDocumentCategory } from '../utils/documentRequirements';
 
 interface InsuranceStepDocumentsProps {
     testResults: VoiceCapturedFinding[];
@@ -8,6 +9,7 @@ interface InsuranceStepDocumentsProps {
     onFileUpload: (file: File) => void;
     onLinkDocument: (documentId: string, testName: string) => void;
     onRemoveDocument: (documentId: string, testName?: string) => void;
+    provisionalDiagnosis?: string;
 }
 
 export const InsuranceStepDocuments: React.FC<InsuranceStepDocumentsProps> = ({
@@ -15,7 +17,8 @@ export const InsuranceStepDocuments: React.FC<InsuranceStepDocumentsProps> = ({
     uploadedDocuments,
     onFileUpload,
     onLinkDocument,
-    onRemoveDocument
+    onRemoveDocument,
+    provisionalDiagnosis
 }) => {
     const [activeTestToLink, setActiveTestToLink] = useState<string | null>(null);
 
@@ -31,8 +34,38 @@ export const InsuranceStepDocuments: React.FC<InsuranceStepDocumentsProps> = ({
 
     const testsNeedingDocs = testResults.filter(t => !t.documentAttached);
 
+    // Calculate missing required documents based on diagnosis
+    const requiredDocs = provisionalDiagnosis ? getRequiredDocuments(provisionalDiagnosis) : [];
+    const uploadedCategories = uploadedDocuments.map(d => guessDocumentCategory(d.fileName));
+
+    const missingMandatoryDocs = requiredDocs.filter(
+        req => req.isRequired && !uploadedCategories.includes(req.category)
+    );
+
     return (
         <div className="space-y-8">
+            {missingMandatoryDocs.length > 0 && (
+                <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                        <span className="text-xl mt-0.5" role="img" aria-label="warning">🚨</span>
+                        <div>
+                            <p className="text-red-400 font-bold text-sm">Critical Missing Evidence Alert</p>
+                            <p className="text-sm text-red-300/90 mt-1">
+                                TPA algorithms auto-reject <strong>{provisionalDiagnosis}</strong> claims without the following documents:
+                            </p>
+                            <ul className="list-disc list-inside text-sm text-red-200 mt-2 font-medium">
+                                {missingMandatoryDocs.map((doc, i) => (
+                                    <li key={i}>{doc.displayName} <span className="text-xs text-red-300/70 font-normal">({doc.description})</span></li>
+                                ))}
+                            </ul>
+                            <p className="text-xs text-red-300/80 mt-3 font-semibold">
+                                Please upload these mandatory attachments below to prevent rejection.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div>
                 <h3 className="text-lg font-semibold text-white border-b border-gray-700 pb-2 mb-4 flex items-center justify-between">
                     <span>📋 Test Results from Consultation</span>

@@ -1,0 +1,271 @@
+Here is the ideal end-to-end journey from the moment the insurance desk person (or doctor) opens your software to the moment a TPA-ready pre-authorization document is generated.
+
+Phase 1: Login & Landing
+The user opens Aivana and lands on a dashboard showing:
+
+Active patients currently admitted or in consultation
+
+A prominent "New Pre-Authorization" button
+
+A queue of draft/pending/submitted pre-auths with status badges (Draft, Submitted, Query Raised, Approved, Denied)
+
+Notifications for TPA queries that need response
+
+The insurance desk person clicks "New Pre-Authorization" or selects an existing patient from the active list.
+
+Phase 2: Patient Identification
+What happens automatically
+If launched from within an active consultation (doctor clicked it), the patient's name, UHID, age, gender, and basic demographics are pre-filled from HIS/EMR.
+
+If launched standalone by insurance desk, a search bar appears: search by UHID, name, phone number, or policy number.
+
+What the user sees
+Patient card with photo, name, age, gender, UHID
+
+A prompt: "Does this patient have an active consultation or clinical note?"
+
+Yes → auto-pull clinical data from the doctor's latest session (NEXUS engine output, vitals, DDx, findings)
+
+No → manual entry path (the user will type or paste clinical details)
+
+What gets validated
+Patient identity confirmed (name + DOB or UHID match)
+
+System checks if a pre-auth already exists for this patient + this admission (prevents duplicates)
+
+Phase 3: Insurance Card Capture
+What happens
+The user is prompted: "Scan or photograph the patient's insurance card (front & back)"
+
+Camera opens on mobile; file upload on desktop
+
+OCR runs automatically and extracts: policy number, insurer name, TPA name, TPA ID card number, sum insured, policy validity dates, proposer name, insured name, relationship
+
+What the user sees
+Extracted fields shown in an editable form, pre-filled from OCR
+
+Confidence indicators on each field (green = high confidence, yellow = review needed)
+
+Fields the OCR couldn't read are highlighted in red for manual entry
+
+A dropdown for TPA name (MDIndia, MediAssist, Raksha, etc.) auto-selected based on OCR but editable
+
+What gets validated
+Policy number format check (basic regex per known insurer patterns)
+
+Policy dates: is the policy currently active? Warning if expired or expiring within 7 days
+
+Sum insured captured for later cost-vs-coverage comparison
+
+Phase 4: Clinical Data Review
+Scenario A: Clinical notes exist (doctor used Aivana voice scribe)
+The system auto-populates from the NEXUS engine output:
+
+Chief complaints extracted from transcription
+
+Duration of present ailment from conversation context
+
+Relevant clinical findings from doctor's dictation
+
+Vitals (BP, pulse, temp, SpO2, RR) from the session
+
+Provisional diagnosis with ICD-10 code (top DDx from NEXUS)
+
+Severity scores (PhenoIntensity, UrgencyQuotient, DeteriorationVelocity)
+
+Voice-captured test interpretations (e.g., "X-ray shows right lower lobe consolidation")
+
+The user sees all of this in a review screen with everything editable. The treating doctor either reviews it themselves or the insurance desk person confirms with the doctor.
+
+Scenario B: No existing clinical notes
+The system shows a structured clinical entry form with:
+
+Chief complaints (free text)
+
+Duration
+
+Nature of illness (Acute / Chronic / Acute on Chronic) dropdown
+
+Clinical findings (free text with smart suggestions)
+
+Diagnosis search (type-ahead with ICD-10 lookup)
+
+Vitals entry fields
+
+A "Use Voice" button that lets the user dictate findings and the AI structures them
+
+What happens in both scenarios
+The user selects the primary diagnosis (radio button if multiple DDx exist)
+
+The user selects proposed line of treatment: Medical / Surgical / Intensive Care / Investigation (checkboxes)
+
+If Surgical is checked → surgery name field and route (Open/Lap/Endo/Robotic) appear
+
+If it's an injury → accident details panel expands (date, cause, MLC yes/no, FIR number)
+
+If maternity → gravida/para/LMP/EDD/delivery type fields appear
+
+Phase 5: Past History & Admission Details
+What the user fills
+Past medical history as checkboxes with "since when" fields: Diabetes, Hypertension, Heart Disease, Asthma/COPD, Epilepsy, Cancer, Kidney Disease, Liver Disease, Alcoholism, Smoking, Others
+
+Previous hospitalization: Yes/No, details, last date
+
+Admission type: Emergency or Planned (radio)
+
+Date and time of admission (auto-filled to current if emergency)
+
+Room category: General Ward / Semi-Private / Private / ICU / ICCU / NICU / HDU
+
+Expected length of stay (days in ward + days in ICU)
+
+Smart behavior
+If NEXUS severity is "Critical" or SpO2 < 90%, system auto-suggests ICU and flags it
+
+If diagnosis is a known chronic condition and past history doesn't mention it, system shows a soft warning: "Diagnosis is COPD exacerbation but COPD not marked in past history – please verify"
+
+Expected length of stay gets a smart suggestion based on diagnosis (e.g., pneumonia → 5-7 days, appendectomy → 3-4 days) that the user can override
+
+Phase 6: Cost Estimation
+What the user sees
+A structured cost form with smart defaults based on the hospital's own rate card (pre-configured during setup):
+
+Cost Head	Rate	Qty/Days	Total
+Room rent	₹X/day	Y days	Auto-calculated
+Nursing charges	₹X/day	Y days	Auto-calculated
+ICU charges	₹X/day	Z days	Auto-calculated
+OT charges	₹X	1	₹X
+Surgeon fee	Manual	—	Manual
+Anesthetist fee	Manual	—	Manual
+Consultant fee	Manual	—	Manual
+Investigations	Manual	—	Manual
+Medicines	Manual	—	Manual
+Consumables	Manual	—	Manual
+Implants (if any)	Add rows	—	Sum
+Ambulance	Manual	—	Manual
+Misc	Manual	—	Manual
+Running total updates live at the bottom
+
+A "Amount claimed from insurer" field (defaults to total, user can reduce if patient pays a portion)
+
+A coverage check: if total > sum insured, show a warning banner: "Estimated cost ₹X exceeds sum insured ₹Y by ₹Z – patient may need to pay the difference"
+
+If the hospital uses package rates for certain procedures, a toggle: "Apply package rate?" with package name and flat amount
+
+Phase 7: Document Upload & Evidence Linking
+What the system shows
+Two sections side by side:
+
+Left: Required Documents Checklist (auto-generated based on diagnosis)
+
+Clinical evidence: CBC, X-ray, ABG, ECG, etc. (based on ICD-10 mapping)
+
+Administrative: Policy copy, ID proof, PAN (if cost > ₹1 lakh), admission letter
+
+Each shows status: ✓ Uploaded, ⚠ Required – Missing, ○ Optional
+
+Right: Upload Area
+
+Drag-and-drop or camera capture
+
+On upload, AI attempts to auto-classify the document (X-ray vs CBC vs ID proof) using filename + basic image/PDF analysis
+
+User confirms or corrects the classification
+
+If voice-captured findings exist (e.g., "X-ray shows consolidation"), the system auto-links the uploaded X-ray to that finding
+
+Smart behavior
+If a voice-captured finding says "CBC shows Hb 8.2" but no CBC report is uploaded, a prominent card appears: "You mentioned CBC results – upload the report to strengthen the claim"
+
+Missing required documents show a count badge on the step indicator
+
+User can mark any document as "Will submit later" – this flags the pre-auth as PENDING DOCUMENTS
+​
+
+Phase 8: Medical Necessity Auto-Generation
+What happens behind the scenes
+The system takes ALL the structured data collected so far and auto-generates a medical necessity statement that answers the three questions every TPA reviewer asks:
+
+What is wrong with the patient? (diagnosis + clinical evidence)
+
+Why does the patient need to be admitted? (severity + why OPD won't work)
+
+What will you do and how much will it cost? (treatment plan + cost estimate)
+
+What the user sees
+A preview card showing the generated medical necessity narrative
+
+An "Edit" button to refine wording (but most users should not need to)
+
+A strength indicator: "Strong / Moderate / Weak" based on:
+
+Whether all required documents are attached
+
+Whether vitals support the severity claim
+
+Whether diagnosis and findings are consistent
+
+Whether cost estimate is within typical range for that diagnosis
+
+Phase 9: Review & Declarations
+What the user sees
+A full summary page showing all 7 IRDAI sections in a compact, scannable layout:
+
+Section 1-3: Patient + Policy + Hospital (collapsed, expandable)
+
+Section 4: Clinical details (expanded, prominent)
+
+Section 5: Admission details + past history
+
+Section 6: Cost breakup with total
+
+Section 7: Three declaration blocks
+
+Declarations flow
+Patient/Insured declaration: Checkbox + "Patient/attendant has been informed and consents" (insurance desk confirms verbally and ticks)
+
+Doctor declaration: Shows doctor's name, qualification, registration number. If the doctor is logged in, they confirm with a tap/click. If not, system records "Pending doctor confirmation" and sends a push notification to the doctor's Aivana app for async confirmation.
+
+Hospital declaration: Auto-filled with hospital's authorized signatory from system config. Checkbox for "Hospital seal will be applied on printed copy."
+
+Phase 10: Generate & Submit
+What happens when "Generate Pre-Auth" is clicked
+System validates all mandatory fields; any missing fields scroll the user to the gap with a red highlight
+
+Pre-auth document is generated in three formats simultaneously:
+
+Structured digital format (JSON) for API submission to TPA portals
+
+IRDAI Part-C formatted text for email/fax submission
+
+PDF matching the standard Part-C layout for printing and physical submission with hospital seal
+
+A unique Pre-Auth Reference ID is assigned (e.g., PA-AIVANA-20260303-0042)
+
+Audit trail is locked: who filled what, when, which fields were auto-filled vs manually entered, which were overridden
+
+What the user sees
+A success screen with:
+
+Reference ID prominently displayed
+
+Three action buttons: "Submit to TPA Portal" (if API integration exists), "Download PDF", "Send via Email"
+
+Document status badge: "✓ COMPLETE" or "⚠ PENDING DOCUMENTS (2 missing)"
+
+A timeline preview: "Typical TPA response time for [TPA name]: 2-4 hours (planned) / 4-6 hours (emergency)"
+
+Option to print directly for physical submission with seal and signature
+
+Phase 11: Post-Submission Tracking
+After submission, the pre-auth appears in the dashboard queue with live status:
+
+Submitted → waiting for TPA response
+
+Query Raised → TPA asked for clarification or additional documents; the system shows exactly what's needed and lets the user respond inline
+
+Approved → shows approved amount, any deductions, co-pay noted
+
+Denied → shows denial reason; system suggests corrective action (e.g., "Add medical necessity justification for ICU stay" or "Upload missing blood culture report")
+
+Enhancement Requested → if actual costs exceed approved amount mid-treatment, a one-click "Request Enhancement" flow pre-fills the delta

@@ -7,7 +7,34 @@ import {
 } from '../types';
 
 /**
- * Generates medical necessity statement from clinical data
+ * Generates specific justification for why OPD management is not appropriate
+ * Used directly within the IRDAI form's Section 4.
+ */
+export const generateOPDJustification = (
+    input: NexusInsuranceInput
+): string => {
+    const { vitals, severity } = input;
+
+    const severityJustification = [];
+    if (severity.phenoIntensity > 0.7) severityJustification.push('Severe symptom presentation');
+    if (severity.urgencyQuotient > 0.7) severityJustification.push('Time-critical intervention required');
+    if (severity.deteriorationVelocity > 0.7) severityJustification.push('High risk of rapid deterioration');
+    if (vitals.spo2 && parseInt(vitals.spo2) < 94) severityJustification.push(`Hypoxia (SpO2 ${vitals.spo2}%)`);
+
+    const opdContraindications = [];
+    if (vitals.spo2 && parseInt(vitals.spo2) < 94) opdContraindications.push('Oxygen requirement cannot be safely met at home');
+    if (severity.phenoIntensity > 0.6) opdContraindications.push('Severity of symptoms precludes safe outpatient management');
+    opdContraindications.push('Need for continuous clinical monitoring and IV management');
+
+    return `Hospitalization is Medically Necessary due to:
+${severityJustification.length > 0 ? severityJustification.map(s => `• ${s}`).join('\n') : '• Moderate severity requiring un-interrupted inpatient care'}
+
+Why Outpatient (OPD) Management is NOT appropriate:
+${opdContraindications.map(c => `• ${c}`).join('\n')}`;
+};
+
+/**
+ * Generates full medical necessity statement (legacy unstructured format)
  */
 export const generateMedicalNecessityStatement = (
     input: NexusInsuranceInput,
@@ -285,6 +312,12 @@ Injury Details:
   Is MLC             : ${formData.section4_ClinicalDetails.injuryDetails.isMLC ? 'Yes' : 'No'}
 ` : ''
         }
+
+${formData.section4_ClinicalDetails.medicalNecessityJustification ? `
+--- MEDICAL NECESSITY & OPD CONTRAINDICATION -----------------------------------
+${formData.section4_ClinicalDetails.medicalNecessityJustification}
+--------------------------------------------------------------------------------
+` : ''}
 
 ────────────────────────────────────────────────────────────────────────────────
 SECTION 5: ADMISSION & HOSPITALIZATION DETAILS

@@ -8,7 +8,7 @@ import {
     VoiceCapturedFinding,
     IRDAIPreAuthForm
 } from '../types';
-import { generateMedicalNecessityStatement, createPreAuthSubmission, formatPreAuthForTPA, generateIRDAIPreAuthForm } from '../services/insuranceService';
+import { generateMedicalNecessityStatement, createPreAuthSubmission, formatPreAuthForTPA, generateIRDAIPreAuthForm, generateOPDJustification } from '../services/insuranceService';
 import { InsuranceStepReview } from './InsuranceStepReview';
 import { InsuranceStepDocuments } from './InsuranceStepDocuments';
 import { InsuranceStepConfirm } from './InsuranceStepConfirm';
@@ -231,7 +231,22 @@ export const InsurancePreAuthModal: React.FC<InsurancePreAuthModalProps> = ({
         if (currentStep === 4) {
             if (nexusOutput) {
                 setGeneratingStatement(true);
-                const statement = generateIRDAIPreAuthForm(formData as IRDAIPreAuthForm);
+
+                // 1. Generate the concise OPD justification logic based on Nexus AI severities
+                const justification = generateOPDJustification(nexusOutput);
+
+                // 2. Inject it into the form data for Section 4
+                const updatedFormData = {
+                    ...formData,
+                    section4_ClinicalDetails: {
+                        ...formData.section4_ClinicalDetails as any,
+                        medicalNecessityJustification: justification
+                    }
+                };
+                setFormData(updatedFormData);
+
+                // 3. Generate the rigid 7-section IRDAI text output
+                const statement = generateIRDAIPreAuthForm(updatedFormData as IRDAIPreAuthForm);
                 setMedicalNecessity(statement);
                 setGeneratingStatement(false);
             }
@@ -389,6 +404,7 @@ export const InsurancePreAuthModal: React.FC<InsurancePreAuthModalProps> = ({
                             onFileUpload={handleFileUpload}
                             onLinkDocument={handleLinkDocument}
                             onRemoveDocument={handleRemoveDocument}
+                            provisionalDiagnosis={formData.section4_ClinicalDetails?.provisionalDiagnosis}
                         />
                     )}
 

@@ -293,6 +293,9 @@ export type DocumentCategory =
   | 'lft'
   | 'kft'
   | 'covid_test'
+  | 'ns1_antigen'
+  | 'dengue_igm'
+  | 'usg_abdomen'
   | 'other';
 
 export interface DocumentRequirement {
@@ -406,6 +409,7 @@ export interface IRDAIPreAuthForm {
     provisionalDiagnosis: string;
     icd10Code: string;
     icd10Description: string;
+    medicalNecessityJustification?: string;
 
     proposedLineOfTreatment: {
       medical: boolean;
