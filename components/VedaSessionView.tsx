@@ -8,6 +8,9 @@ import { processAudioSegment, generateClinicalNote } from '../services/geminiSer
 import { renderMarkdownToHTML } from '../utils/markdownRenderer';
 import { Mic, Activity, CheckCircle2, Circle, Clock, Download, FileText, ChevronRight, X, Wifi, BedDouble } from 'lucide-react';
 import { createIPDCase } from '../services/ipdService';
+import { detectAdmissionIntent, extractTestMentions } from '../utils/admissionDetector';
+import { InsurancePreAuthModal } from './InsurancePreAuthModal';
+import { NexusInsuranceInput, PreAuthSubmission } from '../types';
 
 interface ScribeSessionViewProps {
     onEndSession: () => void;
@@ -182,6 +185,8 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
     const [progress, setProgress] = useState(0);
     const [showPdfModal, setShowPdfModal] = useState(false);
     const [isAdmitting, setIsAdmitting] = useState(false);
+    const [showInsuranceModal, setShowInsuranceModal] = useState(false);
+    const [insuranceNexusData, setInsuranceNexusData] = useState<NexusInsuranceInput | null>(null);
 
     // Mock Patient for Demo
     const [patient] = useState<PatientDemographics>({
@@ -210,6 +215,44 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
     useEffect(() => {
         transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [transcriptHistory, interimTranscript]);
+
+    // Detect admission intent
+    useEffect(() => {
+        const fullTranscript = transcriptHistory.map(t => t.text).join(' ');
+        const admission = detectAdmissionIntent(fullTranscript);
+
+        if (admission.detected && admission.confidence === 'high' && !showInsuranceModal) {
+            const testMentions = extractTestMentions(fullTranscript);
+
+            // Build mock Nexus data
+            const mockNexusData: NexusInsuranceInput = {
+                ddx: [{ diagnosis: 'Pending Diagnosis', rationale: 'Based on clinical presentation', confidence: 'High' }],
+                severity: { phenoIntensity: 0.8, urgencyQuotient: 0.7, deteriorationVelocity: 0.6, mustNotMiss: true, redFlagSeverity: 'moderate' },
+                keyFindings: ['Symptoms indicating need for admission'],
+                vitals: { bp: '120/80', pulse: '90', temp: '98.6', spo2: '98', rr: '16' },
+                voiceCapturedFindings: testMentions.map(m => ({
+                    testName: m.testName,
+                    value: 'Pending',
+                    unit: '',
+                    interpretation: 'normal',
+                    spokenText: m.rawMention,
+                    documentAttached: false
+                }))
+            };
+
+            setInsuranceNexusData(mockNexusData);
+            setShowInsuranceModal(true);
+        }
+    }, [transcriptHistory, showInsuranceModal]);
+
+    const handlePreAuthSubmit = (preAuthData: PreAuthSubmission, tpaDocument: string) => {
+        console.log(`[AUDIT] Pre-Auth generated at ${new Date().toISOString()}`);
+        console.log(`[AUDIT] Doctor: ${preAuthData.doctorConfirmation.doctorName}`);
+        console.log(`[AUDIT] Status: ${preAuthData.documentationStatus}`);
+        console.log(`[AUDIT] Pending docs: ${preAuthData.pendingDocuments.length}`);
+        alert('Pre-Authorization Document Generated! (Check console for TPA output)');
+        console.log("TPA Document:\\n", tpaDocument);
+    };
 
     const formatTime = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -402,6 +445,27 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
                     </div>
                 </header>
 
+                {/* TEMPORARY TESTING BUTTON */}
+                <button
+                    onClick={() => {
+                        setInsuranceNexusData({
+                            ddx: [{ diagnosis: 'Viral Fever with Suspected Dengue', rationale: 'High fever, body ache', confidence: 'High' }],
+                            severity: { phenoIntensity: 0.8, urgencyQuotient: 0.7, deteriorationVelocity: 0.6, mustNotMiss: true, redFlagSeverity: 'moderate' },
+                            keyFindings: ['High grade fever', 'Severe body ache'],
+                            vitals: { bp: '120/80', pulse: '100', temp: '102F', spo2: '98', rr: '18' },
+                            voiceCapturedFindings: [
+                                { testName: 'CBC', value: 'Pending', unit: '', interpretation: 'normal', spokenText: 'cbc test', documentAttached: false },
+                                { testName: 'Chest X-Ray', value: 'Pending', unit: '', interpretation: 'normal', spokenText: 'chest x-ray', documentAttached: false }
+                            ]
+                        });
+                        setShowInsuranceModal(true);
+                    }}
+                    className="fixed bottom-4 left-4 z-50 bg-red-500 text-white p-2 text-xs opacity-50 hover:opacity-100"
+                    id="simulate-admit-btn"
+                >
+                    Simulate Admission Model
+                </button>
+
                 <div className="flex-1 overflow-hidden relative bg-opd-bg flex flex-col">
                     {/* Active Waveform Area */}
                     {phase === 'active' && (
@@ -533,6 +597,26 @@ export const ScribeSessionView: React.FC<ScribeSessionViewProps> = ({ onEndSessi
                     </div>
                 </div>
             )}
+
+            <InsurancePreAuthModal
+                isOpen={showInsuranceModal}
+                onClose={() => setShowInsuranceModal(false)}
+                onSubmit={handlePreAuthSubmit}
+                nexusOutput={insuranceNexusData}
+                patientInfo={{
+                    name: patient.name,
+                    age: parseInt(patient.age),
+                    gender: patient.sex as 'Male' | 'Female' | 'Other',
+                    uhid: 'UHID-12345',
+                    tpaName: 'Star Health'
+                }}
+                consultationInfo={{
+                    date: patient.date,
+                    doctorName: 'Dr. Sharma',
+                    doctorLicense: 'MCI-123456',
+                    department: 'General Medicine'
+                }}
+            />
         </div>
     );
 };

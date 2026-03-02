@@ -50,3 +50,32 @@ export const PRE_CODED_GPTS: PreCodedGpt[] = [
     roles: [UserRole.DOCTOR],
   },
 ];
+
+export const PREAUTH_DISCLAIMER = `
+IMPORTANT DISCLAIMER
+
+This pre-authorization request is generated using Aivana Clinical Documentation System based on clinical findings reported by the treating physician. 
+
+Aivana DOES NOT:
+• Independently verify test results or clinical observations
+• Guarantee approval of pre-authorization by TPA/Insurer
+• Take responsibility for accuracy of clinical information
+
+The treating physician confirms that:
+• All clinical information entered is accurate and complete
+• Supporting documents attached are genuine and unaltered
+• The proposed admission is medically necessary
+
+DOCUMENTATION STATUS: {{DOCUMENT_STATUS}}
+{{PENDING_DOCUMENTS_LIST}}
+`;
+
+export const generateDisclaimer = (status: 'complete' | 'pending_documents', pendingList: string[]) => {
+  return PREAUTH_DISCLAIMER
+    .replace('{{DOCUMENT_STATUS}}', status === 'complete' ? 'All documents attached' : 'PENDING - Some documents not attached')
+    .replace('{{PENDING_DOCUMENTS_LIST}}',
+      pendingList.length > 0
+        ? `\nPending documents: ${pendingList.join(', ')}`
+        : ''
+    );
+};
