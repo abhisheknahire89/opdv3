@@ -8,6 +8,8 @@ import { PatientInsuranceStep } from './PatientInsuranceStep';
 import { ClinicalDetailsStep } from './ClinicalDetailsStep';
 import { AdmissionCostStep } from './AdmissionCostStep';
 import { DocumentsGenerateStep } from './DocumentsGenerateStep';
+import { VoiceDictationMode } from './VoiceDictationMode';
+import { VoiceExtractedData } from '../../services/voiceDictationService';
 import { savePreAuth, savePatient, generatePreAuthId, generatePatientId } from '../../services/storageService';
 import { calculateTotals } from '../../utils/costCalculator';
 import { todayISO, nowTimeString } from '../../utils/formatters';
@@ -67,15 +69,14 @@ const buildEmptyRecord = (): Partial<PreAuthRecord> => ({
 
 export const PreAuthWizard: React.FC<PreAuthWizardProps> = ({ onClose, existingRecord }) => {
     const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+    const [showVoiceMode, setShowVoiceMode] = useState(false);
     const [record, setRecord] = useState<Partial<PreAuthRecord>>(existingRecord ?? buildEmptyRecord());
     const [saving, setSaving] = useState(false);
 
     const updateRecord = useCallback(async (partial: Partial<PreAuthRecord>) => {
         const updated = { ...record, ...partial, updatedAt: new Date().toISOString() };
         setRecord(updated);
-        try {
-            await savePreAuth(updated as PreAuthRecord);
-        } catch (e) { /* silent */ }
+        try { await savePreAuth(updated as PreAuthRecord); } catch (e) { /* silent */ }
     }, [record]);
 
     const handleNext = async () => {
@@ -92,12 +93,77 @@ export const PreAuthWizard: React.FC<PreAuthWizardProps> = ({ onClose, existingR
     const handleGenerate = async (irdaiText: string) => {
         const finalStatus = (record.uploadedDocuments ?? []).length === 0 ? 'pending_documents' : 'ready_to_submit';
         await updateRecord({ status: finalStatus, outputs: { irdaiText } });
-        // Also save patient for future search
         if (record.patient?.patientName) {
             const pat = { id: generatePatientId(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...record.patient } as PatientRecord;
             await savePatient(pat);
         }
     };
+
+    // ── Voice dictation: bulk-fill all sections, auto-calculate costs, jump to step 4 ──
+    const handleVoiceComplete = async (data: VoiceExtractedData) => {
+        const los = data.admission.expectedLengthOfStay ?? 0;
+        const roomDays = data.admission.expectedDaysInRoom ?? los;
+        const icuDays = data.admission.expectedDaysInICU ?? 0;
+
+        // Build a smart cost estimate from the Gemini-extracted admission info
+        const baseCost = calculateTotals({
+            expectedRoomDays: roomDays,
+            expectedIcuDays: icuDays,
+        }, data.insurance.sumInsured ?? 0);
+
+        const merged: Partial<PreAuthRecord> = {
+            ...record,
+            patient: { ...record.patient, ...data.patient },
+            insurance: { ...record.insurance, ...data.insurance, dataSource: 'manual' as const },
+            clinical: {
+                ...record.clinical,
+                ...data.clinical,
+            } as Partial<ClinicalDetails>,
+            admission: {
+                ...record.admission,
+                ...data.admission,
+                dateOfAdmission: record.admission?.dateOfAdmission ?? todayISO(),
+                timeOfAdmission: record.admission?.timeOfAdmission ?? nowTimeString(),
+            } as Partial<AdmissionDetails>,
+            costEstimate: baseCost,
+            updatedAt: new Date().toISOString(),
+        };
+
+        setSaving(true);
+        const updated = { ...merged, updatedAt: new Date().toISOString() };
+        setRecord(updated);
+        try { await savePreAuth(updated as PreAuthRecord); } catch (e) { /**/ }
+        setSaving(false);
+        setShowVoiceMode(false);
+        // Jump straight to Documents & Generate — all data is pre-filled
+        setStep(4);
+    };
+
+    // ── Voice dictation overlay ─────────────────────────────────────────────────
+    if (showVoiceMode) {
+        return (
+            <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm overflow-y-auto">
+                <div className="bg-gray-950 border border-white/10 rounded-2xl w-full max-w-3xl my-8 mx-4 shadow-2xl">
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+                        <div className="flex items-center gap-2">
+                            <span className="text-red-400 font-bold text-sm">🎙️ Voice Dictation</span>
+                            <span className="font-mono text-xs text-gray-500">{record.id}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            {saving && <span className="text-xs text-gray-500">💾 Saving...</span>}
+                            <button onClick={onClose} className="text-gray-500 hover:text-white text-xl leading-none transition-colors">✕</button>
+                        </div>
+                    </div>
+                    <div className="px-6 py-6">
+                        <VoiceDictationMode
+                            onComplete={handleVoiceComplete}
+                            onCancel={() => setShowVoiceMode(false)}
+                        />
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 backdrop-blur-sm overflow-y-auto">
@@ -114,8 +180,26 @@ export const PreAuthWizard: React.FC<PreAuthWizardProps> = ({ onClose, existingR
                     </div>
                 </div>
 
+                {/* Voice Dictation Banner — shown on step 1 */}
+                {step === 1 && (
+                    <div className="mx-6 mt-4 bg-gradient-to-r from-red-900/20 to-rose-900/10 border border-red-500/20 rounded-xl p-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-2xl">🎙️</span>
+                            <div>
+                                <div className="text-sm font-semibold text-white">Voice Dictation — Fastest</div>
+                                <div className="text-xs text-gray-400">Speak clinical notes → AI fills ALL fields instantly</div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setShowVoiceMode(true)}
+                            className="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white transition-all hover:scale-105 whitespace-nowrap">
+                            Start Dictating →
+                        </button>
+                    </div>
+                )}
+
                 {/* Progress Bar */}
-                <div className="px-6 pt-5 pb-3">
+                <div className="px-6 pt-4 pb-3">
                     <WizardProgress currentStep={step} onStepClick={s => s < step && setStep(s)} />
                 </div>
 
