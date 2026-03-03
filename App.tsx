@@ -1,67 +1,42 @@
 import React, { useState } from 'react';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Dashboard } from './components/Dashboard';
-import { ScribeSessionView } from './components/VedaSessionView';
-import { AuthModal } from './components/AuthModal';
-import { DoctorProfile } from './types';
+import { AuthProvider } from './contexts/AuthContext';
+import { PreAuthDashboard } from './components/PreAuthDashboard/index';
+import { PreAuthWizard } from './components/PreAuthWizard/index';
+import { StatusTracker } from './components/PostSubmission/StatusTracker';
+import { PreAuthRecord } from './components/PreAuthWizard/types';
 
 const AppContent: React.FC = () => {
-  const { user, logout } = useAuth();
-  const [view, setView] = useState<'dashboard' | 'session'>('dashboard');
-  const [sessionLanguage, setSessionLanguage] = useState('English');
-  const [showAuthModal, setShowAuthModal] = useState(false);
-
-  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile>({
-    qualification: 'BAMS',
-    canPrescribeAllopathic: 'no'
-  });
-
-  const handleStartSession = (language: string) => {
-    setSessionLanguage(language);
-    setView('session');
-  };
-
-  const handleEndSession = () => {
-    setView('dashboard');
-  };
-
-  // Login check wrapped UI
-  if (!user && !showAuthModal) {
-    // For demo purposes, if not logged in, we might show auth modal or just let them stay on dashboard with restricted access
-    // But per current flow, let's auto-show auth modal if needed, or just let dashboard handle the login state display
-  }
+  const [showWizard, setShowWizard] = useState(false);
+  const [selectedRecord, setSelectedRecord] = useState<PreAuthRecord | null>(null);
 
   return (
-    <div className="min-h-screen bg-opd-bg text-opd-text-primary font-sans antialiased selection:bg-opd-primary/20">
-      {view === 'dashboard' ? (
-        <Dashboard
-          doctorProfile={doctorProfile}
-          onStartSession={handleStartSession}
-          onBoout={logout}
-        />
-      ) : (
-        <ScribeSessionView
-          onEndSession={handleEndSession}
-          doctorProfile={doctorProfile}
-          language={sessionLanguage}
-        />
+    <div className="min-h-screen bg-gray-950">
+      <PreAuthDashboard
+        onNewPreAuth={() => { setSelectedRecord(null); setShowWizard(true); }}
+        onOpenPreAuth={rec => setSelectedRecord(rec)}
+        onSettings={() => { }}
+      />
+
+      {showWizard && (
+        <PreAuthWizard onClose={() => setShowWizard(false)} />
       )}
 
-      <AuthModal
-        isOpen={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        defaultTab="login"
-      />
+      {selectedRecord && !showWizard && (
+        <StatusTracker
+          record={selectedRecord}
+          onClose={() => setSelectedRecord(null)}
+          onRecordUpdate={r => setSelectedRecord(r)}
+        />
+      )}
     </div>
   );
 };
 
-const App: React.FC = () => {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
-  );
-};
+const App: React.FC = () => (
+  <AuthProvider>
+    <AppContent />
+  </AuthProvider>
+);
 
 export default App;
+

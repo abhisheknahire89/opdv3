@@ -1,0 +1,408 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { PreAuthRecord, WizardDocument, WizardDocCategory, MedicalNecessityStatement, DoctorDeclarationData, PatientDeclarationData, HospitalDeclarationData } from '../PreAuthWizard/types';
+import { generateMedicalNecessity, generateIRDAITextFromRecord } from '../../services/medicalNecessityService';
+import { scoreNecessityStrength } from '../../utils/strengthScorer';
+import { getRequiredDocuments } from '../../utils/documentRequirements';
+import { DEFAULT_DOCTORS } from '../../config/hospitalConfig';
+import { formatFileSize } from '../../utils/formatters';
+
+interface DocGenerateStepProps {
+    record: Partial<PreAuthRecord>;
+    onRecordChange: (r: Partial<PreAuthRecord>) => void;
+    onBack: () => void;
+    onGenerate: (irdaiText: string) => void;
+}
+
+const STRENGTH_CONFIG = {
+    strong: { label: 'STRONG', color: 'text-green-400 bg-green-500/10 border-green-500/30', icon: '🟢' },
+    moderate: { label: 'MODERATE', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30', icon: '🟡' },
+    weak: { label: 'WEAK', color: 'text-red-400 bg-red-500/10 border-red-500/30', icon: '🔴' },
+};
+
+export const DocumentsGenerateStep: React.FC<DocGenerateStepProps> = ({
+    record, onRecordChange, onBack, onGenerate
+}) => {
+    const [activeTab, setActiveTab] = useState<'docs' | 'necessity' | 'summary' | 'declarations'>('docs');
+    const [necessity, setNecessity] = useState<MedicalNecessityStatement | null>(record.medicalNecessity ?? null);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editText, setEditText] = useState('');
+    const [generating, setGenerating] = useState(false);
+    const [generated, setGenerated] = useState(false);
+    const [irdaiText, setIrdaiText] = useState('');
+    const fileRef = useRef<HTMLInputElement>(null);
+
+    const docs = record.uploadedDocuments ?? [];
+    const selectedDx = record.clinical?.diagnoses?.[record.clinical.selectedDiagnosisIndex ?? 0];
+    const diagnosisText = selectedDx?.diagnosis ?? '';
+    const requiredDocs = getRequiredDocuments(selectedDx?.icd10Code ?? diagnosisText);
+
+    const docDecl = record.declarations?.patient ?? {} as Partial<PatientDeclarationData>;
+    const drDecl = record.declarations?.doctor ?? {} as Partial<DoctorDeclarationData>;
+    const hospDecl = record.declarations?.hospital ?? {} as Partial<HospitalDeclarationData>;
+
+    const updateDecl = (partial: { patient?: Partial<PatientDeclarationData>; doctor?: Partial<DoctorDeclarationData>; hospital?: Partial<HospitalDeclarationData> }) => {
+        onRecordChange({ ...record, declarations: { ...record.declarations as any, ...partial } });
+    };
+
+    const missingDocs = requiredDocs.filter(req => req.isRequired && !docs.some(d => d.documentCategory === req.category));
+
+    const generateNecessity = () => {
+        const result = generateMedicalNecessity(record);
+        setNecessity(result);
+        onRecordChange({ ...record, medicalNecessity: result });
+    };
+
+    useEffect(() => {
+        if (!necessity) generateNecessity();
+    }, []);
+
+    const handleFileUpload = (file: File) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const base64 = (e.target?.result as string) ?? '';
+            const guessedCategory = guessCategory(file.name);
+            const doc: WizardDocument = {
+                id: `DOC-${Date.now()}`,
+                fileName: file.name,
+                fileSizeDisplay: formatFileSize(file.size),
+                fileType: file.type.includes('pdf') ? 'pdf' : 'image',
+                mimeType: file.type,
+                uploadedAt: new Date().toISOString(),
+                base64Data: base64,
+                documentCategory: guessedCategory,
+                autoClassified: true,
+                isRequired: requiredDocs.some(r => r.category === guessedCategory && r.isRequired),
+            };
+            onRecordChange({ ...record, uploadedDocuments: [...docs, doc] });
+        };
+        reader.readAsDataURL(file);
+    };
+
+    const removeDoc = (id: string) => {
+        onRecordChange({ ...record, uploadedDocuments: docs.filter(d => d.id !== id) });
+    };
+
+    const updateDocCategory = (id: string, category: WizardDocCategory) => {
+        onRecordChange({ ...record, uploadedDocuments: docs.map(d => d.id === id ? { ...d, documentCategory: category } : d) });
+    };
+
+    const handleGenerate = async () => {
+        setGenerating(true);
+        // Final necessity regeneration
+        const finalNecessity = necessity ? { ...necessity, editedText: isEditing ? editText : undefined, wasEdited: isEditing } : generateMedicalNecessity(record);
+        const finalRecord = { ...record, medicalNecessity: finalNecessity };
+        const text = generateIRDAITextFromRecord(finalRecord);
+        setIrdaiText(text);
+        setGenerating(false);
+        setGenerated(true);
+        onGenerate(text);
+    };
+
+    const { strength, reasons } = scoreNecessityStrength(record);
+    const strCfg = STRENGTH_CONFIG[strength];
+
+    const allDeclsComplete = docDecl.agreedToTerms && docDecl.consentForMedicalDataSharing && drDecl.confirmed && docDecl.capturedBy;
+
+    const TABS = [
+        { id: 'docs', label: '📁 Documents' },
+        { id: 'necessity', label: '🏥 Medical Necessity' },
+        { id: 'summary', label: '📋 Summary' },
+        { id: 'declarations', label: '✍️ Declarations' },
+    ] as const;
+
+    if (generated) {
+        return (
+            <div className="space-y-6">
+                <div className="bg-green-900/20 border border-green-500/30 rounded-2xl p-6 text-center space-y-3">
+                    <div className="text-5xl">✅</div>
+                    <h2 className="text-2xl font-bold text-white">Pre-Auth Generated!</h2>
+                    <div className="font-mono text-blue-300 text-lg">{record.id}</div>
+                    <p className="text-gray-400 text-sm">Your IRDAI Part-C formatted document is ready</p>
+                    {missingDocs.length > 0 && (
+                        <div className="bg-amber-900/20 border border-amber-500/30 rounded-xl p-3 text-amber-300 text-sm">
+                            ⚠️ {missingDocs.length} required document(s) still missing — pre-auth flagged as PENDING DOCUMENTS
+                        </div>
+                    )}
+                </div>
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold text-gray-300">Generated IRDAI Pre-Auth Document</h3>
+                        <button onClick={() => navigator.clipboard.writeText(irdaiText)} className="text-xs text-blue-400 hover:text-blue-300 px-3 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20">📋 Copy</button>
+                    </div>
+                    <textarea readOnly value={irdaiText} rows={16}
+                        className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-3 text-xs font-mono text-gray-300 focus:outline-none resize-none" />
+                </div>
+                <button onClick={() => setGenerated(false)} className="w-full py-2.5 rounded-xl text-sm text-gray-400 border border-white/10 hover:bg-white/5 transition-colors">
+                    ← Edit Pre-Auth
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-5">
+            <h2 className="text-xl font-bold text-white">Step 4: Documents & Generate</h2>
+
+            {/* Tabs */}
+            <div className="flex gap-1 bg-gray-800/50 rounded-xl p-1">
+                {TABS.map(tab => (
+                    <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
+                        className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${activeTab === tab.id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Documents Tab */}
+            {activeTab === 'docs' && (
+                <div className="space-y-4">
+                    {/* Missing Evidence Alert */}
+                    {missingDocs.length > 0 && (
+                        <div className="bg-red-900/20 border border-red-500/40 rounded-xl p-4 space-y-2">
+                            <div className="flex items-center gap-2 text-red-300 font-semibold text-sm">
+                                <span className="text-xl">⚠️</span> Critical Missing Evidence Alert
+                            </div>
+                            <p className="text-red-200 text-xs">TPA algorithms auto-reject <strong>{diagnosisText}</strong> claims without the following:</p>
+                            <ul className="space-y-1">
+                                {missingDocs.map(d => (
+                                    <li key={d.category} className="flex items-center gap-2 text-xs text-red-200">
+                                        <span className="text-red-500">✗</span>
+                                        <strong>{d.displayName}</strong> — {d.description}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    {/* Required Docs Checklist */}
+                    {requiredDocs.length > 0 && (
+                        <div className="bg-gray-800/50 rounded-xl p-4 space-y-2">
+                            <h3 className="text-sm font-semibold text-gray-300">Required for: {diagnosisText}</h3>
+                            {requiredDocs.map(req => {
+                                const uploaded = docs.find(d => d.documentCategory === req.category);
+                                return (
+                                    <div key={req.category} className="flex items-center gap-3 text-sm">
+                                        <span className={uploaded ? 'text-green-400' : req.isRequired ? 'text-red-400' : 'text-gray-500'}>
+                                            {uploaded ? '✅' : req.isRequired ? '⚠️' : '○'}
+                                        </span>
+                                        <span className={`flex-1 ${uploaded ? 'text-gray-400' : req.isRequired ? 'text-white' : 'text-gray-500'}`}>{req.displayName}</span>
+                                        <span className={`text-xs ${req.isRequired ? 'text-red-400' : 'text-gray-600'}`}>{req.isRequired ? 'Required' : 'Optional'}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Upload Zone */}
+                    <div
+                        onClick={() => fileRef.current?.click()}
+                        className="border-2 border-dashed border-white/20 hover:border-blue-500/50 rounded-xl p-8 text-center cursor-pointer transition-colors"
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileUpload(f); }}
+                    >
+                        <div className="text-3xl">📁</div>
+                        <div className="text-white font-medium mt-2">Drop files here or click to upload</div>
+                        <div className="text-xs text-gray-500 mt-1">PDF, JPG, PNG — max 10MB each</div>
+                    </div>
+                    <input ref={fileRef} type="file" accept="image/*,.pdf" className="hidden" onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
+
+                    {/* Uploaded Docs List */}
+                    {docs.length > 0 && (
+                        <div className="space-y-2">
+                            {docs.map(doc => (
+                                <div key={doc.id} className="flex items-center gap-3 bg-gray-900 border border-white/10 rounded-xl px-3 py-2.5">
+                                    <span className="text-lg">{doc.fileType === 'pdf' ? '📄' : '🖼️'}</span>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-sm text-white truncate">{doc.fileName}</div>
+                                        <div className="text-xs text-gray-500">{doc.fileSizeDisplay}</div>
+                                    </div>
+                                    <select value={doc.documentCategory} onChange={e => updateDocCategory(doc.id, e.target.value as WizardDocCategory)}
+                                        className="bg-gray-800 border border-white/10 rounded-lg px-2 py-1 text-xs text-gray-300 focus:outline-none">
+                                        {DOC_CAT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                    </select>
+                                    <button onClick={() => removeDoc(doc.id)} className="text-gray-600 hover:text-red-400 text-xs transition-colors">✕</button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Medical Necessity Tab */}
+            {activeTab === 'necessity' && (
+                <div className="space-y-4">
+                    <div className={`flex items-center justify-between p-3 rounded-xl border ${strCfg.color}`}>
+                        <span className="font-semibold text-sm">Necessity Strength: {strCfg.icon} {strCfg.label}</span>
+                        <button onClick={() => { setEditText(necessity?.generatedText ?? ''); setIsEditing(!isEditing); }} className="text-xs underline opacity-70 hover:opacity-100">
+                            {isEditing ? 'Preview' : '✏️ Edit'}
+                        </button>
+                    </div>
+                    <div className="text-xs text-gray-400 space-y-1">
+                        {reasons.map((r, i) => <div key={i}>{r}</div>)}
+                    </div>
+                    {isEditing ? (
+                        <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={18}
+                            className="w-full bg-gray-900 border border-white/10 rounded-xl px-4 py-3 text-xs font-mono text-gray-200 focus:outline-none focus:border-blue-500/30 resize-none" />
+                    ) : (
+                        <div className="bg-gray-900 border border-white/10 rounded-xl px-4 py-3 text-xs font-mono text-gray-300 whitespace-pre-wrap max-h-80 overflow-y-auto">
+                            {necessity?.generatedText ?? 'Generating...'}
+                        </div>
+                    )}
+                    <button onClick={generateNecessity} className="text-xs text-blue-400 hover:text-blue-300 underline">↺ Regenerate from data</button>
+                </div>
+            )}
+
+            {/* Summary Tab */}
+            {activeTab === 'summary' && (
+                <div className="bg-gray-800/50 rounded-xl p-4 space-y-3 text-sm">
+                    <h3 className="font-semibold text-white">Pre-Authorization Summary</h3>
+                    {[
+                        ['Patient', `${record.patient?.patientName ?? '—'}, ${record.patient?.age ?? '?'}Y ${record.patient?.gender ?? ''}`],
+                        ['Policy', `${record.insurance?.policyNumber ?? '—'} (${record.insurance?.insurerName ?? '—'} via ${record.insurance?.tpaName ?? '—'})`],
+                        ['Diagnosis', `${selectedDx?.diagnosis ?? '—'} (${selectedDx?.icd10Code ?? '—'})`],
+                        ['Admission', `${record.admission?.admissionType ?? '—'} — ${record.admission?.dateOfAdmission ?? '—'} — ${record.admission?.roomCategory ?? '—'}`],
+                        ['Expected Stay', `${record.admission?.expectedLengthOfStay ?? 0} days (${record.admission?.expectedDaysInRoom ?? 0} ward + ${record.admission?.expectedDaysInICU ?? 0} ICU)`],
+                        ['Total Estimate', `₹${(record.costEstimate?.totalEstimatedCost ?? 0).toLocaleString('en-IN')}`],
+                        ['Claimed', `₹${(record.costEstimate?.amountClaimedFromInsurer ?? 0).toLocaleString('en-IN')}`],
+                        ['Documents', `${docs.length} attached, ${missingDocs.length} required pending`],
+                        ['Necessity Strength', `${strCfg.icon} ${strCfg.label}`],
+                    ].map(([label, value]) => (
+                        <div key={label} className="flex justify-between border-b border-white/5 pb-2">
+                            <span className="text-gray-400">{label}</span>
+                            <span className="text-white text-right max-w-xs">{value}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Declarations Tab */}
+            {activeTab === 'declarations' && (
+                <div className="space-y-5">
+                    {/* Patient */}
+                    <div className="bg-gray-800/50 rounded-xl p-4 space-y-3">
+                        <h3 className="font-semibold text-blue-300 text-sm">Patient / Insured Declaration</h3>
+                        <p className="text-xs text-gray-400">I hereby declare that the information furnished is true and correct. I authorize the hospital and TPA to share my medical records for claim processing.</p>
+                        <div className="space-y-2">
+                            {[
+                                ['agreedToTerms', 'Patient/attendant has been informed and consents to terms'],
+                                ['consentForMedicalDataSharing', 'Patient consents to sharing of medical data with insurer/TPA'],
+                                ['agreesToPayNonPayables', 'Patient agrees to pay any non-payable items per policy terms'],
+                            ].map(([key, label]) => (
+                                <label key={key} className="flex items-start gap-2 cursor-pointer">
+                                    <input type="checkbox" checked={(docDecl as any)[key] ?? false}
+                                        onChange={e => updateDecl({ patient: { ...docDecl, [key]: e.target.checked } })}
+                                        className="accent-blue-500 mt-0.5" />
+                                    <span className="text-sm text-gray-300">{label}</span>
+                                </label>
+                            ))}
+                            <div>
+                                <label className="block text-xs text-gray-400 mb-1">Captured by (insurance desk person name) *</label>
+                                <input value={docDecl.capturedBy ?? ''} onChange={e => updateDecl({ patient: { ...docDecl, capturedBy: e.target.value } })}
+                                    className="w-full bg-gray-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50" placeholder="Your name" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Doctor */}
+                    <div className="bg-gray-800/50 rounded-xl p-4 space-y-3">
+                        <h3 className="font-semibold text-blue-300 text-sm">Treating Doctor's Declaration</h3>
+                        <div>
+                            <label className="block text-xs text-gray-400 mb-1">Select Treating Doctor *</label>
+                            <select value={drDecl.doctorId ?? ''} onChange={e => {
+                                const dr = DEFAULT_DOCTORS.find(d => d.id === e.target.value);
+                                if (dr) updateDecl({ doctor: { doctorId: dr.id, doctorName: dr.name, doctorQualification: dr.qualification, doctorRegistrationNumber: dr.registrationNumber, registrationCouncil: dr.registrationCouncil, confirmed: false, confirmationMethod: 'in_app' } });
+                            }} className="w-full bg-gray-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50">
+                                <option value="">Select Doctor</option>
+                                {DEFAULT_DOCTORS.map(d => <option key={d.id} value={d.id}>{d.name} — {d.qualification}</option>)}
+                            </select>
+                        </div>
+                        {drDecl.doctorName && (
+                            <div className="bg-gray-900 rounded-lg p-3 text-xs text-gray-400 space-y-1">
+                                <div>Reg: {drDecl.doctorRegistrationNumber} | {drDecl.registrationCouncil}</div>
+                            </div>
+                        )}
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={drDecl.confirmed ?? false} disabled={!drDecl.doctorId}
+                                onChange={e => updateDecl({ doctor: { ...drDecl, confirmed: e.target.checked, confirmationMethod: 'in_app' } })}
+                                className="accent-blue-500" />
+                            <span className="text-sm text-gray-300">Doctor confirms the above clinical information is accurate</span>
+                        </label>
+                    </div>
+
+                    {/* Hospital */}
+                    <div className="bg-gray-800/50 rounded-xl p-4 space-y-3">
+                        <h3 className="font-semibold text-blue-300 text-sm">Hospital Declaration</h3>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs text-gray-400 mb-1">Authorized Signatory</label>
+                                <input value={hospDecl.authorizedSignatoryName ?? ''} onChange={e => updateDecl({ hospital: { ...hospDecl, authorizedSignatoryName: e.target.value } })}
+                                    className="w-full bg-gray-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-400 mb-1">Designation</label>
+                                <input value={hospDecl.designation ?? ''} onChange={e => updateDecl({ hospital: { ...hospDecl, designation: e.target.value } })}
+                                    className="w-full bg-gray-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" />
+                            </div>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={hospDecl.hospitalSealApplied ?? false}
+                                onChange={e => updateDecl({ hospital: { ...hospDecl, hospitalSealApplied: e.target.checked } })}
+                                className="accent-blue-500" />
+                            <span className="text-sm text-gray-300">Hospital seal will be applied on printed copy</span>
+                        </label>
+                    </div>
+                </div>
+            )}
+
+            {/* Bottom Action Buttons */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+                <button onClick={onBack} className="py-3 rounded-xl font-semibold text-sm bg-gray-800 hover:bg-gray-700 text-white transition-colors">← Back</button>
+                <button onClick={handleGenerate} disabled={generating}
+                    className="py-3 rounded-xl font-semibold text-sm bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white transition-all disabled:opacity-50">
+                    {generating ? '⏳ Generating...' : '🚀 Generate Pre-Auth Document'}
+                </button>
+            </div>
+            {missingDocs.length > 0 && (
+                <p className="text-xs text-amber-400 text-center">⚠️ {missingDocs.length} required documents missing — pre-auth will be marked PENDING DOCUMENTS</p>
+            )}
+        </div>
+    );
+};
+
+const guessCategory = (filename: string): WizardDocCategory => {
+    const lower = filename.toLowerCase();
+    if (lower.includes('xray') || lower.includes('x_ray') || lower.includes('chest')) return 'chest_xray';
+    if (lower.includes('cbc') || lower.includes('blood_count') || lower.includes('haemogram')) return 'cbc';
+    if (lower.includes('ecg') || lower.includes('ekg')) return 'ecg';
+    if (lower.includes('ct') || lower.includes('scan')) return 'ct_scan';
+    if (lower.includes('mri')) return 'mri';
+    if (lower.includes('abg') || lower.includes('blood_gas')) return 'abg';
+    if (lower.includes('ultrasound') || lower.includes('usg')) return 'ultrasound';
+    if (lower.includes('ns1') || lower.includes('dengue')) return 'ns1_antigen';
+    if (lower.includes('policy') || lower.includes('insurance')) return 'policy_copy';
+    if (lower.includes('id') || lower.includes('aadhaar') || lower.includes('aadhar')) return 'id_proof';
+    if (lower.includes('pan')) return 'pan_card';
+    return 'other';
+};
+
+const DOC_CAT_OPTIONS: { value: WizardDocCategory; label: string }[] = [
+    { value: 'chest_xray', label: 'Chest X-Ray' },
+    { value: 'cbc', label: 'CBC / Blood Count' },
+    { value: 'ecg', label: 'ECG' },
+    { value: 'ct_scan', label: 'CT Scan' },
+    { value: 'mri', label: 'MRI' },
+    { value: 'abg', label: 'ABG' },
+    { value: 'ultrasound', label: 'Ultrasound / USG' },
+    { value: 'ns1_antigen', label: 'NS1 Antigen (Dengue)' },
+    { value: 'dengue_igm', label: 'Dengue IgM' },
+    { value: 'blood_culture', label: 'Blood Culture' },
+    { value: 'urine_routine', label: 'Urine Routine' },
+    { value: 'lft', label: 'LFT' },
+    { value: 'kft', label: 'KFT / RFT' },
+    { value: 'policy_copy', label: 'Policy Copy' },
+    { value: 'id_proof', label: 'ID Proof' },
+    { value: 'pan_card', label: 'PAN Card' },
+    { value: 'admission_letter', label: 'Admission Letter' },
+    { value: 'prescription', label: 'Prescription' },
+    { value: 'other', label: 'Other' },
+];
